@@ -3,6 +3,16 @@ import { ApiError, createGame, getGame, makeMove, type GameState } from './api';
 import { findWinningLine } from './winningLine.mjs';
 
 const STORAGE_KEY = 'connect4.gameId';
+const BACKGROUND_STORAGE_KEY = 'connect4.backgroundTheme';
+const backgroundThemes = [
+  { id: 'classic', label: 'Classic', description: 'Midnight blue' },
+  { id: 'neon', label: 'Neon Grid', description: 'Electric purple and cyan' },
+  { id: 'retro', label: 'Retro Sunset', description: 'Warm arcade colors' },
+] as const;
+type BackgroundTheme = typeof backgroundThemes[number]['id'];
+function isBackgroundTheme(value: string | null): value is BackgroundTheme {
+  return backgroundThemes.some(theme => theme.id === value);
+}
 const playerName = (player: number) => player === 1 ? 'Red' : 'Yellow';
 const musicTracks = {
   arcade: {
@@ -67,11 +77,20 @@ export default function App() {
   const [musicTrack, setMusicTrack] = useState<MusicTrack>('arcade');
   const [effectsOn, setEffectsOn] = useState(true);
   const [effectsVolume, setEffectsVolume] = useState(0.65);
+  const [backgroundTheme, setBackgroundTheme] = useState<BackgroundTheme>(() => {
+    const storedTheme = localStorage.getItem(BACKGROUND_STORAGE_KEY);
+    return isBackgroundTheme(storedTheme) ? storedTheme : 'classic';
+  });
   const operation = useRef(false);
   const requestVersion = useRef(0);
   const audioContext = useRef<AudioContext | null>(null);
   const musicGainRef = useRef<GainNode | null>(null);
   const effectsGainRef = useRef<GainNode | null>(null);
+
+  useEffect(() => {
+    document.documentElement.dataset.backgroundTheme = backgroundTheme;
+    localStorage.setItem(BACKGROUND_STORAGE_KEY, backgroundTheme);
+  }, [backgroundTheme]);
 
   useEffect(() => {
     if (celebration === null) return;
@@ -231,7 +250,17 @@ export default function App() {
     </div>}
     <header className="topbar">
       <div className="brand"><span className="brand-mark" aria-hidden="true"><i/><i/><i/><i/></span><span>FOUR<span className="brand-light">INAROW</span></span></div>
-      <span className="top-label">THE CLASSIC STRATEGY GAME</span>
+      <div className="topbar-actions"><span className="top-label">THE CLASSIC STRATEGY GAME</span>
+        <details className="theme-menu">
+          <summary className="theme-menu-trigger" aria-label="Choose background style" title="Background style"><span aria-hidden="true">✦</span></summary>
+          <div className="theme-popover" aria-label="Background styles">
+            <span className="theme-menu-title">BACKGROUND STYLE</span>
+            {backgroundThemes.map(theme => <button type="button" className={`theme-option theme-option-${theme.id}`} key={theme.id} aria-pressed={backgroundTheme === theme.id} onClick={() => setBackgroundTheme(theme.id)}>
+              <span className="theme-swatch" aria-hidden="true"/><span><strong>{theme.label}</strong><small>{theme.description}</small></span>{backgroundTheme === theme.id && <span className="theme-check" aria-hidden="true">✓</span>}
+            </button>)}
+          </div>
+        </details>
+      </div>
     </header>
     <section className="layout">
       <div className="intro"><div className="eyebrow"><span className="eyebrow-dot"/> TWO PLAYERS · ONE WINNER</div><h1>Make your <em>move.</em></h1><p>Connect four discs in a row — vertically, horizontally, or diagonally — to claim victory.</p></div>

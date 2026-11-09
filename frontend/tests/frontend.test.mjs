@@ -41,6 +41,17 @@ test('provides independent music, volume, and sound-effect controls', () => {
   assert.match(app, /noteWave: 'square' as OscillatorType/);
   assert.match(app, /noteWave: 'triangle' as OscillatorType/);
 });
+test('offers persistent background themes', () => {
+  const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
+  assert.match(app, /const BACKGROUND_STORAGE_KEY = 'connect4\.backgroundTheme'/);
+  assert.match(app, /backgroundThemes = \[/);
+  assert.match(app, /id: 'neon', label: 'Neon Grid'/);
+  assert.match(app, /id: 'retro', label: 'Retro Sunset'/);
+  assert.match(app, /localStorage\.setItem\(BACKGROUND_STORAGE_KEY, backgroundTheme\)/);
+  assert.match(app, /aria-label="Choose background style"/);
+  assert.match(css, /data-background-theme='neon'/);
+  assert.match(css, /data-background-theme='retro'/);
+});
 test('prevents invalid UI moves and duplicate submissions', () => {
   assert.match(app, /operation\.current/);
   assert.match(app, /game\.board\[0\]\[column\] !== 0/);
