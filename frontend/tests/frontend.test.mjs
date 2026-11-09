@@ -22,6 +22,19 @@ test('handles wins, draws, turn display, and new games', () => {
   assert.match(app, /\{playerName\(game\.winner\)\} team wins!/);
   assert.match(app, /onClick=\{\(\) => void newGame\(\)\}/);
 });
+test('provides independent music, volume, and sound-effect controls', () => {
+  assert.match(app, /aria-label="Audio settings"/);
+  assert.match(app, /<details className="audio-menu">/);
+  assert.match(app, /aria-label="Open audio settings"/);
+  assert.match(app, /aria-pressed=\{musicOn\}/);
+  assert.match(app, /aria-label="Music volume"/);
+  assert.match(app, /aria-pressed=\{effectsOn\}/);
+  assert.match(app, /aria-label="Sound effects volume"/);
+  assert.match(app, /const sound = effectsOn \? enableAudio\(\) : null/);
+  assert.match(app, /notes = \[523\.25, 659\.25, 783\.99, 1046\.5/);
+  assert.match(app, /'square'\)/);
+  assert.match(app, /'triangle'\)/);
+});
 test('prevents invalid UI moves and duplicate submissions', () => {
   assert.match(app, /operation\.current/);
   assert.match(app, /game\.board\[0\]\[column\] !== 0/);

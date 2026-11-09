@@ -4,18 +4,18 @@ import { findWinningLine } from './winningLine.mjs';
 
 const STORAGE_KEY = 'connect4.gameId';
 const playerName = (player: number) => player === 1 ? 'Red' : 'Yellow';
-function playTone(context: AudioContext, frequency: number, endFrequency: number, delay: number, duration: number, volume: number) {
+function playTone(context: AudioContext, frequency: number, endFrequency: number, delay: number, duration: number, volume: number, destination: AudioNode = context.destination, type: OscillatorType = 'sine') {
   const start = context.currentTime + delay;
   const oscillator = context.createOscillator();
   const gain = context.createGain();
-  oscillator.type = 'sine';
+  oscillator.type = type;
   oscillator.frequency.setValueAtTime(frequency, start);
   oscillator.frequency.exponentialRampToValueAtTime(endFrequency, start + duration);
   gain.gain.setValueAtTime(0.0001, start);
   gain.gain.exponentialRampToValueAtTime(volume, start + 0.012);
   gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
   oscillator.connect(gain);
-  gain.connect(context.destination);
+  gain.connect(destination);
   oscillator.start(start);
   oscillator.stop(start + duration);
 }
@@ -32,15 +32,75 @@ export default function App() {
   const [hovered, setHovered] = useState<number | null>(null);
   const [celebration, setCelebration] = useState<number | null>(null);
   const [lastDrop, setLastDrop] = useState<{ row: number; column: number; gameId: string; move: number } | null>(null);
+  const [musicOn, setMusicOn] = useState(false);
+  const [musicVolume, setMusicVolume] = useState(0.35);
+  const [effectsOn, setEffectsOn] = useState(true);
+  const [effectsVolume, setEffectsVolume] = useState(0.65);
   const operation = useRef(false);
   const requestVersion = useRef(0);
   const audioContext = useRef<AudioContext | null>(null);
+  const musicGainRef = useRef<GainNode | null>(null);
+  const effectsGainRef = useRef<GainNode | null>(null);
 
   useEffect(() => {
     if (celebration === null) return;
     const timeout = window.setTimeout(() => setCelebration(null), 1800);
     return () => window.clearTimeout(timeout);
   }, [celebration]);
+
+  useEffect(() => {
+    if (!musicOn) return;
+    const context = enableAudio();
+    if (!context) return;
+
+    let active = true;
+    let timeout: number | undefined;
+    let step = 0;
+    const notes = [523.25, 659.25, 783.99, 1046.5, 783.99, 659.25, 587.33, 783.99, 440, 554.37, 659.25, 880, 783.99, 659.25, 587.33, 523.25];
+    const bass = [130.81, 146.83, 110, 130.81];
+    const musicGain = context.createGain();
+    musicGain.gain.setValueAtTime(0.0001, context.currentTime);
+    musicGain.gain.exponentialRampToValueAtTime(Math.max(0.0002, musicVolume), context.currentTime + 0.25);
+    musicGain.connect(context.destination);
+    musicGainRef.current = musicGain;
+
+    const playNextNote = () => {
+      if (!active) return;
+      playTone(context, notes[step], notes[step], 0, 0.15, 0.075, musicGain, 'square');
+      if (step % 4 === 0) playTone(context, bass[Math.floor(step / 4)], bass[Math.floor(step / 4)], 0, 0.28, 0.11, musicGain, 'triangle');
+      step = (step + 1) % notes.length;
+      timeout = window.setTimeout(playNextNote, 180);
+    };
+
+    void context.resume().then(playNextNote).catch(error => {
+      console.error('Could not start background music.', error);
+    });
+
+    return () => {
+      active = false;
+      if (timeout !== undefined) window.clearTimeout(timeout);
+      musicGainRef.current = null;
+      const now = context.currentTime;
+      musicGain.gain.cancelScheduledValues(now);
+      musicGain.gain.setValueAtTime(Math.max(musicGain.gain.value, 0.0001), now);
+      musicGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+      window.setTimeout(() => musicGain.disconnect(), 200);
+    };
+  }, [musicOn]);
+
+  useEffect(() => {
+    const gain = musicGainRef.current;
+    if (!gain || !audioContext.current) return;
+    const now = audioContext.current.currentTime;
+    gain.gain.cancelScheduledValues(now);
+    gain.gain.setTargetAtTime(Math.max(0.0001, musicVolume), now, 0.06);
+  }, [musicVolume, musicOn]);
+
+  useEffect(() => {
+    const gain = effectsGainRef.current;
+    if (!gain || !audioContext.current) return;
+    gain.gain.setTargetAtTime(Math.max(0.0001, effectsVolume), audioContext.current.currentTime, 0.015);
+  }, [effectsVolume]);
 
   const enableAudio = () => {
     if (typeof window === 'undefined' || !window.AudioContext) return null;
@@ -49,6 +109,17 @@ export default function App() {
       void audioContext.current.resume().catch(error => console.error('Could not enable game sounds.', error));
     }
     return audioContext.current;
+  };
+
+  const getEffectsOutput = (context: AudioContext) => {
+    let gain = effectsGainRef.current;
+    if (!gain) {
+      gain = context.createGain();
+      gain.connect(context.destination);
+      effectsGainRef.current = gain;
+    }
+    gain.gain.setTargetAtTime(Math.max(0.0001, effectsVolume), context.currentTime, 0.015);
+    return gain;
   };
 
   const newGame = useCallback(async () => {
@@ -90,7 +161,8 @@ export default function App() {
 
   const drop = async (column: number) => {
     if (!game || game.status !== 'in_progress' || busy || operation.current || game.board[0][column] !== 0) return;
-    const sound = enableAudio();
+    const sound = effectsOn ? enableAudio() : null;
+    const effectsOutput = sound ? getEffectsOutput(sound) : null;
     operation.current = true; setBusy(true); setError('');
     try {
       const updated = await makeMove(game.id, column);
@@ -98,11 +170,11 @@ export default function App() {
       setLastDrop(row >= 0 ? { row, column, gameId: updated.id, move: updated.moves } : null);
       setGame(updated);
       if (sound) {
-        playTone(sound, 520, 210, 0, 0.18, 0.045);
+        playTone(sound, 520, 210, 0, 0.18, 0.045, effectsOutput ?? sound.destination);
         if (updated.status === 'won') {
-          playTone(sound, 523.25, 523.25, 0.12, 0.3, 0.035);
-          playTone(sound, 659.25, 659.25, 0.18, 0.3, 0.035);
-          playTone(sound, 783.99, 783.99, 0.24, 0.42, 0.035);
+          playTone(sound, 523.25, 523.25, 0.12, 0.3, 0.035, effectsOutput ?? sound.destination);
+          playTone(sound, 659.25, 659.25, 0.18, 0.3, 0.035, effectsOutput ?? sound.destination);
+          playTone(sound, 783.99, 783.99, 0.24, 0.42, 0.035, effectsOutput ?? sound.destination);
         }
       }
       if (updated.status === 'won') setCelebration(updated.moves);
@@ -138,6 +210,25 @@ export default function App() {
           <div className={`player-card yellow ${game?.status === 'in_progress' && game.turn === 2 ? 'active' : ''} ${game?.winner === 2 ? 'champion' : ''}`}><span className="player-disc"/><div><span className="player-caption">PLAYER TWO</span><strong>Yellow</strong></div>{game?.turn === 2 && game.status === 'in_progress' && <span className="playing">PLAYING</span>}{game?.winner === 2 && <span className="playing">WINNER</span>}</div>
         </div>
         <div className={`status ${game?.status === 'won' ? 'status-win' : ''}`} role="status" aria-live="polite"><span className={`status-indicator ${game?.status === 'in_progress' ? game.turn === 1 ? 'red-dot' : 'yellow-dot' : ''}`}/><span>{loading ? 'Loading your match…' : game ? description(game) : 'Ready to play?'}</span><span className="move-counter">{game?.moves ?? 0} / 42 MOVES</span></div>
+        <details className="audio-menu">
+          <summary className={`audio-menu-trigger ${musicOn || effectsOn ? 'audio-menu-active' : ''}`} aria-label="Open audio settings" title="Audio settings">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h4l5 4V6l-5 4H4Z"/><path d="M16 9a5 5 0 0 1 0 6M18.5 6.5a9 9 0 0 1 0 11"/></svg>
+          </summary>
+          <div className="audio-popover" aria-label="Audio settings">
+            <div className="audio-setting">
+              <button type="button" className={`audio-setting-toggle ${musicOn ? 'audio-setting-on' : ''}`} aria-pressed={musicOn} onClick={() => setMusicOn(value => !value)}>
+                <span className="audio-setting-icon" aria-hidden="true">♫</span><span>Arcade music</span><span className="audio-switch" aria-hidden="true"/>
+              </button>
+              <label className="audio-volume"><span>Music volume</span><input type="range" min="0" max="1" step="0.05" value={musicVolume} aria-label="Music volume" onChange={event => setMusicVolume(Number(event.target.value))}/></label>
+            </div>
+            <div className="audio-setting">
+              <button type="button" className={`audio-setting-toggle ${effectsOn ? 'audio-setting-on' : ''}`} aria-pressed={effectsOn} onClick={() => setEffectsOn(value => !value)}>
+                <span className="audio-setting-icon" aria-hidden="true">●</span><span>Game sounds</span><span className="audio-switch" aria-hidden="true"/>
+              </button>
+              <label className="audio-volume"><span>Sound volume</span><input type="range" min="0" max="1" step="0.05" value={effectsVolume} aria-label="Sound effects volume" onChange={event => setEffectsVolume(Number(event.target.value))}/></label>
+            </div>
+          </div>
+        </details>
         <div className="board-wrap"><div className="board" role="group" aria-label="Connect Four game board">
           {Array.from({length:7}, (_, col) => <button type="button" className="board-column" key={col} onMouseEnter={() => setHovered(col)} onMouseLeave={() => setHovered(null)} onFocus={() => setHovered(col)} onBlur={() => setHovered(null)} onClick={() => void drop(col)} disabled={!game || busy || isFinished || game.board[0][col] !== 0} aria-label={`Drop ${game ? playerName(game.turn) : 'a'} disc in column ${col + 1}`}>
             {Array.from({length:6}, (_, row) => { const cell = game?.board[row][col] ?? 0; const winning = winningCells.has(`${row}-${col}`);
