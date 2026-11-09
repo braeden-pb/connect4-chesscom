@@ -40,6 +40,28 @@
 :root[data-background-theme='retro'] .eyebrow-dot{background:#ffbd69}
 .theme-menu-trigger{display:flex;align-items:center;justify-content:center;gap:8px;width:auto;min-width:100px;height:40px;padding:0 12px;border-color:#665230;border-radius:10px;background:linear-gradient(145deg,#352f28,#24283a);font-size:12px;font-weight:700;letter-spacing:.01em;white-space:nowrap;transition:background .18s,border-color .18s,transform .18s}
 .theme-menu-trigger:hover{border-color:#f5c66f;background:linear-gradient(145deg,#463a29,#2d3042);transform:translateY(-1px)}
+.player-score{display:block;margin-top:3px;color:#93a3bd;font-size:10px;font-weight:600}
+.board-column[aria-disabled=true]:not(:disabled){cursor:not-allowed}
+.move-history{margin-top:24px;padding-top:17px;border-top:1px solid #ffffff14}
+.keyboard-guide{margin-top:16px;padding:13px 15px;border:1px solid #293a55;border-radius:9px;background:#0e192b}
+.keyboard-guide h3{margin:0 0 10px;color:#dce5f4;font-family:'Space Grotesk',sans-serif;font-size:12px;font-weight:600}
+.keyboard-guide ol{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0;padding:0;list-style:none}
+.keyboard-guide li{display:flex;align-items:flex-start;gap:8px;color:#aab8cf;font-size:11px;line-height:1.55}
+.keyboard-guide li>span{display:grid;place-items:center;width:18px;height:18px;flex:none;border-radius:50%;background:#293a55;color:#f5c66f;font-size:10px;font-weight:800}
+.keyboard-guide kbd{display:inline-block;min-width:20px;padding:1px 5px;border:1px solid #3a4b67;border-bottom-width:2px;border-radius:4px;background:#19283d;color:#eaf0fc;font:600 10px 'DM Sans',system-ui,sans-serif;text-align:center;white-space:nowrap}
+.move-history-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:11px}
+.move-history-heading h3{margin:0;color:#eaf0fc;font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:600}
+.move-history-heading>span,.move-history>p{color:#8495b3;font-size:11px}
+.move-history>p{margin:0}
+.move-history ol{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}
+.history-move{display:flex;align-items:center;gap:5px;min-width:43px;padding:5px 7px;border:1px solid #34435c;border-radius:6px;background:#19283d;color:#dce5f4;font-size:10px}
+.history-move>span{color:#8495b3;font-size:9px}
+.history-red>strong{color:#ff858d}
+.history-yellow>strong{color:#f7ce75}
+.history-latest{border-color:#f5c66f;background:#302c31}
+.board-column:focus-visible{outline:3px solid #fff;outline-offset:4px;z-index:2}
+.board-column:focus-visible .slot-preview-1,.board-column:focus-visible .slot-preview-2{box-shadow:0 0 0 2px #fff9,inset 0 3px 6px #0008}
+@media(max-width:650px){.player-score{font-size:9px}.move-history{margin-top:19px}.history-move{min-width:39px;padding:5px}.keyboard-guide ol{grid-template-columns:1fr;gap:7px}.keyboard-guide{padding:12px}}
 .winner-overlay{position:absolute;z-index:5;left:50%;top:50%;display:flex;align-items:center;gap:12px;width:max-content;max-width:calc(100% - 24px);padding:15px 18px;border:1px solid;border-radius:12px;box-shadow:0 12px 40px #0009;backdrop-filter:blur(10px);pointer-events:none;animation:winner-overlay-show 1800ms ease-out both}.winner-overlay-1{background:linear-gradient(110deg,#552a3eef,#241d32ef);border-color:#f27b86}.winner-overlay-2{background:linear-gradient(110deg,#514127ef,#252536ef);border-color:#f2c762}.winner-overlay-disc{width:30px;height:30px;flex:none;border-radius:50%;background:radial-gradient(circle at 33% 24%,#ffafb0,#f36570 48%,#d43c56 82%);box-shadow:0 0 16px #f3657088}.winner-overlay-2 .winner-overlay-disc{background:radial-gradient(circle at 33% 24%,#ffe9aa,#f8c95e 48%,#e8a53d 82%);box-shadow:0 0 16px #f8c95e88}.winner-overlay>span:nth-child(2){display:grid;gap:3px}.winner-overlay-label{color:#f3c568;font-size:9px;font-weight:800;letter-spacing:.18em}.winner-overlay strong{font-family:'Space Grotesk',sans-serif;font-size:17px;white-space:nowrap}.winner-overlay-mark{margin-left:auto;color:#f8cc6f;font-size:24px;text-shadow:0 0 14px #f8cc6f88}@keyframes winner-overlay-show{0%{opacity:0;transform:translate(-50%,-46%) scale(.92)}10%,78%{opacity:1;transform:translate(-50%,-50%) scale(1)}100%{opacity:0;transform:translate(-50%,-52%) scale(.98)}}
 /* A newly confirmed disc falls from above the board into its final slot. */
 .disc-dropping{animation:piece-drop var(--drop-duration,960ms) cubic-bezier(.16,.76,.28,1) both;transform-origin:center;will-change:transform}

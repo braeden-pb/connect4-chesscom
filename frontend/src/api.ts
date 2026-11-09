@@ -7,6 +7,7 @@ export interface GameState {
   status: GameStatus;
   winner: Player;
   moves: number;
+  history: number[];
   row?: number;
 }
 export class ApiError extends Error {
@@ -37,7 +38,9 @@ export function isGameState(value: unknown): value is GameState {
     && (v.turn === 0 || v.turn === 1 || v.turn === 2)
     && (v.winner === 0 || v.winner === 1 || v.winner === 2)
     && (v.status === 'in_progress' || v.status === 'won' || v.status === 'draw')
-    && Number.isInteger(v.moves) && (v.moves as number) >= 0 && (v.moves as number) <= 42;
+    && Number.isInteger(v.moves) && (v.moves as number) >= 0 && (v.moves as number) <= 42
+    && Array.isArray(v.history) && v.history.length === v.moves
+    && v.history.every(column => Number.isInteger(column) && column >= 0 && column < 7);
 }
 export const createGame = () => request('/api/games', { method: 'POST' });
 export const getGame = (id: string) => request(`/api/games/${encodeURIComponent(id)}`);

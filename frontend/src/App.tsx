@@ -4,12 +4,30 @@ import { findWinningLine } from './winningLine.mjs';
 
 const STORAGE_KEY = 'connect4.gameId';
 const BACKGROUND_STORAGE_KEY = 'connect4.backgroundTheme';
+const SCORE_STORAGE_KEY = 'connect4.matchScoreboard';
 const backgroundThemes = [
   { id: 'classic', label: 'Classic', description: 'Midnight blue' },
   { id: 'neon', label: 'Neon Grid', description: 'Electric purple and cyan' },
   { id: 'retro', label: 'Retro Sunset', description: 'Warm arcade colors' },
 ] as const;
 type BackgroundTheme = typeof backgroundThemes[number]['id'];
+type Scoreboard = { red: number; yellow: number };
+function readScoreboard(): Scoreboard {
+  const stored = localStorage.getItem(SCORE_STORAGE_KEY);
+  if (!stored) return { red: 0, yellow: 0 };
+  try {
+    const parsed: unknown = JSON.parse(stored);
+    if (parsed && typeof parsed === 'object' && 'red' in parsed && 'yellow' in parsed
+      && typeof parsed.red === 'number' && typeof parsed.yellow === 'number'
+      && Number.isSafeInteger(parsed.red) && Number.isSafeInteger(parsed.yellow)
+      && parsed.red >= 0 && parsed.yellow >= 0) {
+      return { red: parsed.red, yellow: parsed.yellow };
+    }
+  } catch {
+    return { red: 0, yellow: 0 };
+  }
+  return { red: 0, yellow: 0 };
+}
 function isBackgroundTheme(value: string | null): value is BackgroundTheme {
   return backgroundThemes.some(theme => theme.id === value);
 }
@@ -70,6 +88,8 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [hovered, setHovered] = useState<number | null>(null);
+  const [focusedColumn, setFocusedColumn] = useState(3);
+  const [scoreboard, setScoreboard] = useState<Scoreboard>(readScoreboard);
   const [celebration, setCelebration] = useState<number | null>(null);
   const [lastDrop, setLastDrop] = useState<{ row: number; column: number; gameId: string; move: number } | null>(null);
   const [musicOn, setMusicOn] = useState(false);
@@ -86,11 +106,27 @@ export default function App() {
   const audioContext = useRef<AudioContext | null>(null);
   const musicGainRef = useRef<GainNode | null>(null);
   const effectsGainRef = useRef<GainNode | null>(null);
+  const boardRef = useRef<HTMLDivElement | null>(null);
+
+  const handleColumnKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, column: number) => {
+    let nextColumn: number | null = null;
+    if (event.key === 'ArrowLeft') nextColumn = Math.max(0, column - 1);
+    if (event.key === 'ArrowRight') nextColumn = Math.min(6, column + 1);
+    if (nextColumn === null || nextColumn === column) return;
+    event.preventDefault();
+    setFocusedColumn(nextColumn);
+    setHovered(nextColumn);
+    boardRef.current?.querySelector<HTMLButtonElement>(`[data-column="${nextColumn}"]`)?.focus();
+  };
 
   useEffect(() => {
     document.documentElement.dataset.backgroundTheme = backgroundTheme;
     localStorage.setItem(BACKGROUND_STORAGE_KEY, backgroundTheme);
   }, [backgroundTheme]);
+
+  useEffect(() => {
+    localStorage.setItem(SCORE_STORAGE_KEY, JSON.stringify(scoreboard));
+  }, [scoreboard]);
 
   useEffect(() => {
     if (celebration === null) return;
@@ -221,6 +257,12 @@ export default function App() {
       const row = updated.board.findIndex((cells, index) => cells[column] !== game.board[index][column]);
       setLastDrop(row >= 0 ? { row, column, gameId: updated.id, move: updated.moves } : null);
       setGame(updated);
+      if (updated.status === 'won') {
+        setScoreboard(current => ({
+          ...current,
+          [updated.winner === 1 ? 'red' : 'yellow']: current[updated.winner === 1 ? 'red' : 'yellow'] + 1,
+        }));
+      }
       if (sound) {
         playTone(sound, 520, 210, 0, 0.18, 0.045, effectsOutput ?? sound.destination);
         if (updated.status === 'won') {
@@ -256,11 +298,11 @@ export default function App() {
       <div className="game-panel">
         <div className="panel-heading"><div><span className="overline">CURRENT MATCH</span><h2>Connect Four</h2></div><span className="match-badge">LOCAL · 2 PLAYERS</span></div>
         <div className="players">
-          <div className={`player-card red ${game?.status === 'in_progress' && game.turn === 1 ? 'active' : ''} ${game?.winner === 1 ? 'champion' : ''}`}><span className="player-disc"/><div><span className="player-caption">PLAYER ONE</span><strong>Red</strong></div>{game?.turn === 1 && game.status === 'in_progress' && <span className="playing">PLAYING</span>}{game?.winner === 1 && <span className="playing">WINNER</span>}</div>
+          <div className={`player-card red ${game?.status === 'in_progress' && game.turn === 1 ? 'active' : ''} ${game?.winner === 1 ? 'champion' : ''}`}><span className="player-disc"/><div><span className="player-caption">PLAYER ONE</span><strong>Red</strong><span className="player-score">{scoreboard.red} {scoreboard.red === 1 ? 'win' : 'wins'}</span></div>{game?.turn === 1 && game.status === 'in_progress' && <span className="playing">PLAYING</span>}{game?.winner === 1 && <span className="playing">WINNER</span>}</div>
           <span className="versus">VS</span>
-          <div className={`player-card yellow ${game?.status === 'in_progress' && game.turn === 2 ? 'active' : ''} ${game?.winner === 2 ? 'champion' : ''}`}><span className="player-disc"/><div><span className="player-caption">PLAYER TWO</span><strong>Yellow</strong></div>{game?.turn === 2 && game.status === 'in_progress' && <span className="playing">PLAYING</span>}{game?.winner === 2 && <span className="playing">WINNER</span>}</div>
+          <div className={`player-card yellow ${game?.status === 'in_progress' && game.turn === 2 ? 'active' : ''} ${game?.winner === 2 ? 'champion' : ''}`}><span className="player-disc"/><div><span className="player-caption">PLAYER TWO</span><strong>Yellow</strong><span className="player-score">{scoreboard.yellow} {scoreboard.yellow === 1 ? 'win' : 'wins'}</span></div>{game?.turn === 2 && game.status === 'in_progress' && <span className="playing">PLAYING</span>}{game?.winner === 2 && <span className="playing">WINNER</span>}</div>
         </div>
-        <div className={`status ${game?.status === 'won' ? 'status-win' : ''}`} role="status" aria-live="polite"><span className={`status-indicator ${game?.status === 'in_progress' ? game.turn === 1 ? 'red-dot' : 'yellow-dot' : ''}`}/><span>{loading ? 'Loading your match…' : game ? description(game) : 'Ready to play?'}</span><span className="move-counter">{game?.moves ?? 0} / 42 MOVES</span></div>
+        <div className={`status ${game?.status === 'won' ? 'status-win' : ''}`} role="status" aria-live="polite"><span className={`status-indicator ${game?.status === 'in_progress' ? game.turn === 1 ? 'red-dot' : 'yellow-dot' : ''}`}/><span>{loading ? 'Loading your match…' : busy ? 'Updating game…' : game ? description(game) : 'Ready to play?'}</span><span className="move-counter">{game?.moves ?? 0} / 42 MOVES</span></div>
         <div className="utility-menus">
         <details className="theme-menu">
           <summary className="theme-menu-trigger" aria-label={`Choose background style, currently ${backgroundThemes.find(theme => theme.id === backgroundTheme)?.label ?? 'Classic'}`} title="Background style"><span aria-hidden="true">✦</span><span>{backgroundThemes.find(theme => theme.id === backgroundTheme)?.label ?? 'Classic'}</span></summary>
@@ -294,8 +336,8 @@ export default function App() {
           </div>
         </details>
         </div>
-        <div className="board-wrap"><div className="board" role="group" aria-label="Connect Four game board">
-          {Array.from({length:7}, (_, col) => <button type="button" className="board-column" key={col} onMouseEnter={() => setHovered(col)} onMouseLeave={() => setHovered(null)} onFocus={() => setHovered(col)} onBlur={() => setHovered(null)} onClick={() => void drop(col)} disabled={!game || busy || isFinished || game.board[0][col] !== 0} aria-label={`Drop ${game ? playerName(game.turn) : 'a'} disc in column ${col + 1}`}>
+        <div className="board-wrap"><div className="board" ref={boardRef} role="group" aria-label="Connect Four game board" aria-busy={loading || busy} aria-keyshortcuts="ArrowLeft ArrowRight Enter Space">
+          {Array.from({length:7}, (_, col) => <button type="button" className="board-column" key={col} data-column={col} tabIndex={col === focusedColumn ? 0 : -1} onKeyDown={event => handleColumnKeyDown(event, col)} onMouseEnter={() => setHovered(col)} onMouseLeave={() => setHovered(null)} onFocus={() => { setFocusedColumn(col); setHovered(col); }} onBlur={() => setHovered(null)} onClick={() => void drop(col)} disabled={!game || isFinished} aria-disabled={busy || (!!game && game.board[0][col] !== 0)} aria-label={`Drop ${game ? playerName(game.turn) : 'a'} disc in column ${col + 1}${game?.board[0][col] !== 0 ? ', column full' : ''}`}>
             {Array.from({length:6}, (_, row) => { const cell = game?.board[row][col] ?? 0; const winning = winningCells.has(`${row}-${col}`);
               const justDropped = !!cell && lastDrop !== null && game !== null && lastDrop.gameId === game.id && lastDrop.move === game.moves && lastDrop.row === row && lastDrop.column === col;
               return <span className={`slot ${winning ? 'slot-winning' : ''} ${hovered === col && row === 0 && !cell && !busy && !isFinished ? `slot-preview-${game?.turn}` : ''}`} key={`${row}-${col}-${justDropped ? game?.moves : 0}`} aria-label={`Row ${row + 1}, column ${col + 1}: ${cell ? playerName(cell) : 'empty'}${winning ? ', winning piece' : ''}`}>{cell !== 0 && <span className={`disc-piece ${cell === 1 ? 'slot-red' : 'slot-yellow'} ${justDropped ? 'disc-dropping' : ''}`} style={justDropped ? { '--drop-rows': row + 1, '--drop-duration': `${450 + (row + 1) * 85}ms` } as React.CSSProperties : undefined}><span className="disc-shine"/></span>}</span>; })}
@@ -306,7 +348,24 @@ export default function App() {
           <span><span className="winner-overlay-label">VICTORY</span><strong>{playerName(game.winner)} team wins!</strong></span>
           <span className="winner-overlay-mark" aria-hidden="true">★</span>
         </div>}</div>
-        <div className="below-board"><span className="hint">↓ Select any column to drop your disc</span><button type="button" className="new-game" onClick={() => void newGame()} disabled={busy}><span aria-hidden="true">↻</span> New game</button></div>
+        <div className="below-board"><span className="hint">↓ Select any column to drop your disc</span><button type="button" className="new-game" onClick={() => void newGame()} disabled={busy || loading}><span aria-hidden="true">↻</span> New game</button></div>
+        <section className="keyboard-guide" aria-labelledby="keyboard-guide-title">
+          <h3 id="keyboard-guide-title">Play with your keyboard</h3>
+          <ol>
+            <li><span>1</span><div>Press <kbd>Tab</kbd> until a game column has a white outline.</div></li>
+            <li><span>2</span><div>Use <kbd>←</kbd> and <kbd>→</kbd> to choose a column.</div></li>
+            <li><span>3</span><div>Press <kbd>Enter</kbd> or <kbd>Space</kbd> to drop your disc.</div></li>
+          </ol>
+        </section>
+        <section className="move-history" aria-labelledby="move-history-title">
+          <div className="move-history-heading"><h3 id="move-history-title">Move history</h3><span>{game?.history.length ?? 0} {(game?.history.length ?? 0) === 1 ? 'move' : 'moves'}</span></div>
+          {game?.history.length ? <ol>{game.history.map((column, index) => {
+            const player = index % 2 === 0 ? 1 : 2;
+            return <li className={`history-move ${player === 1 ? 'history-red' : 'history-yellow'} ${index === game.history.length - 1 ? 'history-latest' : ''}`} key={`${index}-${column}`} aria-label={`Move ${index + 1}, ${playerName(player)}, column ${column + 1}`}>
+              <span>{index + 1}</span><strong>{column + 1}</strong>
+            </li>;
+          })}</ol> : <p>No moves yet. The first move is Red.</p>}
+        </section>
         {error && <div className="error" role="alert">{error} <button type="button" onClick={() => { setError(''); if (game) void getGame(game.id).then(setGame).catch(e => setError(String(e))); else void newGame(); }}>Retry</button></div>}
       </div>
       <div className="footnote"><span>HOW TO PLAY</span> Take turns dropping discs into the board. First to connect four wins. A full board without a winner is a draw.</div>

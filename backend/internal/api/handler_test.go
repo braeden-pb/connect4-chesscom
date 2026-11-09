@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 )
 
@@ -61,15 +62,16 @@ func TestLifecycle(t *testing.T) {
 		t.Fatalf("move: %d %s", w.Code, w.Body.String())
 	}
 	var result struct {
-		Row   int       `json:"row"`
-		Moves int       `json:"moves"`
-		Turn  int       `json:"turn"`
-		Board [6][7]int `json:"board"`
+		Row     int       `json:"row"`
+		Moves   int       `json:"moves"`
+		Turn    int       `json:"turn"`
+		Board   [6][7]int `json:"board"`
+		History []int     `json:"history"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.Row != 5 || result.Moves != 1 || result.Turn != 2 || result.Board[5][3] != 1 {
+	if result.Row != 5 || result.Moves != 1 || result.Turn != 2 || result.Board[5][3] != 1 || !slices.Equal(result.History, []int{3}) {
 		t.Fatalf("wrong state: %+v", result)
 	}
 	w = request(h, "GET", "/api/games/"+testID, "")
@@ -142,15 +144,16 @@ func TestCompleteMatchOverHTTP(t *testing.T) {
 	}
 	w := request(h, http.MethodGet, path, "")
 	var state struct {
-		Status string    `json:"status"`
-		Winner int       `json:"winner"`
-		Moves  int       `json:"moves"`
-		Board  [6][7]int `json:"board"`
+		Status  string    `json:"status"`
+		Winner  int       `json:"winner"`
+		Moves   int       `json:"moves"`
+		Board   [6][7]int `json:"board"`
+		History []int     `json:"history"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &state); err != nil {
 		t.Fatal(err)
 	}
-	if state.Status != "won" || state.Winner != 1 || state.Moves != 7 {
+	if state.Status != "won" || state.Winner != 1 || state.Moves != 7 || !slices.Equal(state.History, []int{0, 0, 1, 1, 2, 2, 3}) {
 		t.Fatalf("final state: %+v", state)
 	}
 	for col := 0; col < 4; col++ {

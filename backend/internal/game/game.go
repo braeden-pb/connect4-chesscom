@@ -33,11 +33,12 @@ var (
 // Game is a self-contained, in-memory game. Zero-based column indexes are used.
 // Fields are private to prevent callers from bypassing the rules.
 type Game struct {
-	board  [Rows][Columns]Player
-	turn   Player
-	status Status
-	winner Player
-	moves  int
+	board   [Rows][Columns]Player
+	turn    Player
+	status  Status
+	winner  Player
+	moves   int
+	history []int
 }
 
 func New() *Game { return &Game{turn: Red, status: InProgress} }
@@ -50,6 +51,7 @@ func (g *Game) Status() Status               { return g.status }
 // Winner is Empty unless a player has won.
 func (g *Game) Winner() Player { return g.winner }
 func (g *Game) Moves() int     { return g.moves }
+func (g *Game) History() []int { return append([]int{}, g.history...) }
 
 // Drop places the current player's disc in the lowest available row of column.
 // It returns the row where the disc landed. Invalid moves leave state unchanged.
@@ -72,6 +74,7 @@ func (g *Game) Drop(column int) (int, error) {
 	player := g.turn
 	g.board[row][column] = player
 	g.moves++
+	g.history = append(g.history, column)
 
 	if g.hasWon(row, column, player) {
 		g.status = Won

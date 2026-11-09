@@ -2,6 +2,7 @@ package game
 
 import (
 	"errors"
+	"slices"
 	"testing"
 )
 
@@ -54,12 +55,25 @@ func TestInvalidMovesDoNotChangeState(t *testing.T) {
 		}
 	}
 	play(t, g, 0, 0, 0, 0, 0, 0)
-	before := *g
+	beforeBoard, beforeHistory, beforeTurn, beforeMoves := g.Board(), g.History(), g.Turn(), g.Moves()
 	if row, err := g.Drop(0); row != -1 || !errors.Is(err, ErrColumnFull) {
 		t.Fatalf("full column: row=%d err=%v", row, err)
 	}
-	if *g != before {
+	if g.Board() != beforeBoard || g.Turn() != beforeTurn || g.Moves() != beforeMoves || !slices.Equal(g.History(), beforeHistory) {
 		t.Fatal("invalid move mutated state")
+	}
+}
+
+func TestHistoryIsOrderedAndCopied(t *testing.T) {
+	g := New()
+	play(t, g, 3, 1, 4)
+	history := g.History()
+	if !slices.Equal(history, []int{3, 1, 4}) {
+		t.Fatalf("history = %v", history)
+	}
+	history[0] = 6
+	if !slices.Equal(g.History(), []int{3, 1, 4}) {
+		t.Fatal("history getter exposed mutable state")
 	}
 }
 
@@ -80,11 +94,11 @@ func TestWins(t *testing.T) {
 			if g.Status() != Won || g.Winner() != Red {
 				t.Fatalf("expected red win, got %s winner %d", g.Status(), g.Winner())
 			}
-			before := *g
+			beforeBoard, beforeHistory, beforeTurn, beforeMoves := g.Board(), g.History(), g.Turn(), g.Moves()
 			if _, err := g.Drop(6); !errors.Is(err, ErrGameOver) {
 				t.Fatalf("expected game over, got %v", err)
 			}
-			if *g != before {
+			if g.Board() != beforeBoard || g.Turn() != beforeTurn || g.Moves() != beforeMoves || !slices.Equal(g.History(), beforeHistory) {
 				t.Fatal("move after win mutated state")
 			}
 		})

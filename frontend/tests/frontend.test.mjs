@@ -13,6 +13,9 @@ test('renders 7 columns of 6 cells and sends moves', () => {
   assert.match(app, /Array\.from\(\{length:7\}/);
   assert.match(app, /Array\.from\(\{length:6\}/);
   assert.match(app, /await makeMove\(game\.id, column\)/);
+  assert.match(api, /history: number\[\]/);
+  assert.match(app, /game\.history\.map\(\(column, index\)/);
+  assert.match(app, /Move history/);
 });
 test('handles wins, draws, turn display, and new games', () => {
   assert.match(app, /game\.status === 'won'/);
@@ -60,6 +63,28 @@ test('prevents invalid UI moves and duplicate submissions', () => {
   assert.match(app, /operation\.current/);
   assert.match(app, /game\.board\[0\]\[column\] !== 0/);
   assert.match(app, /game\.status !== 'in_progress'/);
+  assert.match(app, /disabled=\{busy \|\| loading\}/);
+  assert.match(app, /aria-busy=\{loading \|\| busy\}/);
+  assert.match(app, /busy \? 'Updating game…'/);
+});
+test('persists match wins and supports keyboard board navigation', () => {
+  const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
+  assert.match(app, /const SCORE_STORAGE_KEY = 'connect4\.matchScoreboard'/);
+  assert.match(app, /setScoreboard\(current => \(\{/);
+  assert.match(app, /localStorage\.setItem\(SCORE_STORAGE_KEY, JSON\.stringify\(scoreboard\)\)/);
+  assert.match(app, /scoreboard\.red === 1 \? 'win' : 'wins'/);
+  assert.match(app, /scoreboard\.yellow === 1 \? 'win' : 'wins'/);
+  assert.match(app, /ArrowLeft/);
+  assert.match(app, /ArrowRight/);
+  assert.match(app, /tabIndex=\{col === focusedColumn \? 0 : -1\}/);
+  assert.match(app, /aria-keyshortcuts="ArrowLeft ArrowRight Enter Space"/);
+  assert.doesNotMatch(app, /event\.key === 'Home'|event\.key === 'End'/);
+  assert.match(app, /disabled=\{!game \|\| isFinished\} aria-disabled=\{busy \|\|/);
+  assert.match(css, /\.board-column:focus-visible\{outline:3px solid #fff/);
+  assert.match(app, /className="keyboard-guide"[\s\S]*Press <kbd>Tab<\/kbd> until a game column has a white outline[\s\S]*Use <kbd>←<\/kbd> and <kbd>→<\/kbd> to choose a column[\s\S]*Press <kbd>Enter<\/kbd> or <kbd>Space<\/kbd> to drop your disc/);
+  assert.doesNotMatch(app, /<kbd>Home<\/kbd>|<kbd>End<\/kbd>/);
+  assert.match(css, /\.keyboard-guide ol\{display:grid;grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
+  assert.match(css, /\.keyboard-guide ol\{grid-template-columns:1fr;gap:7px\}/);
 });
 test('proxies API requests to Go', () => assert.match(vite, /localhost:8080/));
 test('supports API errors and state restoration', () => {

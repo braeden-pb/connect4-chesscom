@@ -3,6 +3,7 @@ package repository
 import (
 	"connect4/internal/game"
 	"errors"
+	"slices"
 	"testing"
 )
 
@@ -13,6 +14,9 @@ func TestReplay(t *testing.T) {
 	}
 	if g.Status() != game.Won || g.Winner() != game.Red || g.Moves() != 7 {
 		t.Fatal("wrong replay state")
+	}
+	if got := g.History(); !slices.Equal(got, []int{0, 1, 0, 1, 0, 1, 0}) {
+		t.Fatalf("wrong replay history: %v", got)
 	}
 	for _, s := range []string{`null`, `{}`, `[7]`, `[0,1,0,1,0,1,0,2]`, `not json`} {
 		if _, err := replay([]byte(s)); err == nil {

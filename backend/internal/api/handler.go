@@ -13,16 +13,20 @@ import (
 type Handler struct{ Store repository.Store }
 
 type state struct {
-	ID     string                               `json:"id"`
-	Board  [game.Rows][game.Columns]game.Player `json:"board"`
-	Turn   game.Player                          `json:"turn"`
-	Status game.Status                          `json:"status"`
-	Winner game.Player                          `json:"winner"`
-	Moves  int                                  `json:"moves"`
+	ID      string                               `json:"id"`
+	Board   [game.Rows][game.Columns]game.Player `json:"board"`
+	Turn    game.Player                          `json:"turn"`
+	Status  game.Status                          `json:"status"`
+	Winner  game.Player                          `json:"winner"`
+	Moves   int                                  `json:"moves"`
+	History []int                                `json:"history"`
 }
 
 func snapshot(id string, g *game.Game) state {
-	return state{id, g.Board(), g.Turn(), g.Status(), g.Winner(), g.Moves()}
+	return state{
+		ID: id, Board: g.Board(), Turn: g.Turn(), Status: g.Status(),
+		Winner: g.Winner(), Moves: g.Moves(), History: g.History(),
+	}
 }
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
