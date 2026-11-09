@@ -4,6 +4,36 @@ import { findWinningLine } from './winningLine.mjs';
 
 const STORAGE_KEY = 'connect4.gameId';
 const playerName = (player: number) => player === 1 ? 'Red' : 'Yellow';
+const musicTracks = {
+  arcade: {
+    label: 'Arcade',
+    notes: [523.25, 659.25, 783.99, 1046.5, 783.99, 659.25, 587.33, 783.99, 440, 554.37, 659.25, 880, 783.99, 659.25, 587.33, 523.25],
+    bass: [130.81, 146.83, 110, 130.81],
+    interval: 180,
+    noteDuration: 0.15,
+    noteWave: 'square' as OscillatorType,
+  },
+  retro: {
+    label: 'Retro Lo-fi',
+    notes: [196, 233.08, 293.66, 349.23, 293.66, 233.08, 174.61, 220, 261.63, 349.23, 261.63, 220, 164.81, 196, 246.94, 293.66],
+    bass: [82.41, 98, 73.42, 87.31],
+    interval: 320,
+    noteDuration: 0.3,
+    noteWave: 'triangle' as OscillatorType,
+  },
+  chill: {
+    label: 'Chill',
+    notes: [261.63, 329.63, 392, 493.88, 392, 329.63, 293.66, 349.23, 440, 523.25, 440, 349.23, 246.94, 293.66, 369.99, 440],
+    bass: [130.81, 110, 146.83, 123.47],
+    interval: 320,
+    noteDuration: 0.38,
+    noteWave: 'triangle' as OscillatorType,
+  },
+} as const;
+type MusicTrack = keyof typeof musicTracks;
+function isMusicTrack(value: string): value is MusicTrack {
+  return Object.prototype.hasOwnProperty.call(musicTracks, value);
+}
 function playTone(context: AudioContext, frequency: number, endFrequency: number, delay: number, duration: number, volume: number, destination: AudioNode = context.destination, type: OscillatorType = 'sine') {
   const start = context.currentTime + delay;
   const oscillator = context.createOscillator();
@@ -34,6 +64,7 @@ export default function App() {
   const [lastDrop, setLastDrop] = useState<{ row: number; column: number; gameId: string; move: number } | null>(null);
   const [musicOn, setMusicOn] = useState(false);
   const [musicVolume, setMusicVolume] = useState(0.35);
+  const [musicTrack, setMusicTrack] = useState<MusicTrack>('arcade');
   const [effectsOn, setEffectsOn] = useState(true);
   const [effectsVolume, setEffectsVolume] = useState(0.65);
   const operation = useRef(false);
@@ -56,8 +87,7 @@ export default function App() {
     let active = true;
     let timeout: number | undefined;
     let step = 0;
-    const notes = [523.25, 659.25, 783.99, 1046.5, 783.99, 659.25, 587.33, 783.99, 440, 554.37, 659.25, 880, 783.99, 659.25, 587.33, 523.25];
-    const bass = [130.81, 146.83, 110, 130.81];
+    const track = musicTracks[musicTrack];
     const musicGain = context.createGain();
     musicGain.gain.setValueAtTime(0.0001, context.currentTime);
     musicGain.gain.exponentialRampToValueAtTime(Math.max(0.0002, musicVolume), context.currentTime + 0.25);
@@ -66,10 +96,13 @@ export default function App() {
 
     const playNextNote = () => {
       if (!active) return;
-      playTone(context, notes[step], notes[step], 0, 0.15, 0.075, musicGain, 'square');
-      if (step % 4 === 0) playTone(context, bass[Math.floor(step / 4)], bass[Math.floor(step / 4)], 0, 0.28, 0.11, musicGain, 'triangle');
-      step = (step + 1) % notes.length;
-      timeout = window.setTimeout(playNextNote, 180);
+      playTone(context, track.notes[step], track.notes[step], 0, track.noteDuration, 0.075, musicGain, track.noteWave);
+      if (step % 4 === 0) {
+        const bassNote = track.bass[Math.floor(step / 4) % track.bass.length];
+        playTone(context, bassNote, bassNote, 0, track.noteDuration * 1.8, 0.11, musicGain, 'triangle');
+      }
+      step = (step + 1) % track.notes.length;
+      timeout = window.setTimeout(playNextNote, track.interval);
     };
 
     void context.resume().then(playNextNote).catch(error => {
@@ -86,7 +119,7 @@ export default function App() {
       musicGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
       window.setTimeout(() => musicGain.disconnect(), 200);
     };
-  }, [musicOn]);
+  }, [musicOn, musicTrack]);
 
   useEffect(() => {
     const gain = musicGainRef.current;
@@ -220,6 +253,9 @@ export default function App() {
                 <span className="audio-setting-icon" aria-hidden="true">♫</span><span>Arcade music</span><span className="audio-switch" aria-hidden="true"/>
               </button>
               <label className="audio-volume"><span>Music volume</span><input type="range" min="0" max="1" step="0.05" value={musicVolume} aria-label="Music volume" onChange={event => setMusicVolume(Number(event.target.value))}/></label>
+              <label className="music-track-control"><span>Music style</span><select aria-label="Music style" value={musicTrack} onChange={event => { if (isMusicTrack(event.target.value)) setMusicTrack(event.target.value); }}>
+                {Object.entries(musicTracks).map(([track, details]) => <option value={track} key={track}>{details.label}</option>)}
+              </select></label>
             </div>
             <div className="audio-setting">
               <button type="button" className={`audio-setting-toggle ${effectsOn ? 'audio-setting-on' : ''}`} aria-pressed={effectsOn} onClick={() => setEffectsOn(value => !value)}>

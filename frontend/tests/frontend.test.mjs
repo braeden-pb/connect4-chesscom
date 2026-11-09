@@ -28,12 +28,18 @@ test('provides independent music, volume, and sound-effect controls', () => {
   assert.match(app, /aria-label="Open audio settings"/);
   assert.match(app, /aria-pressed=\{musicOn\}/);
   assert.match(app, /aria-label="Music volume"/);
+  assert.match(app, /aria-label="Music style"/);
   assert.match(app, /aria-pressed=\{effectsOn\}/);
   assert.match(app, /aria-label="Sound effects volume"/);
   assert.match(app, /const sound = effectsOn \? enableAudio\(\) : null/);
-  assert.match(app, /notes = \[523\.25, 659\.25, 783\.99, 1046\.5/);
-  assert.match(app, /'square'\)/);
-  assert.match(app, /'triangle'\)/);
+  assert.match(app, /arcade: \{/);
+  assert.match(app, /retro: \{/);
+  assert.match(app, /chill: \{/);
+  assert.match(app, /label: 'Retro Lo-fi'/);
+  assert.match(app, /interval: 320,\s*noteDuration: 0\.3,\s*noteWave: 'triangle'/);
+  assert.match(app, /\}, \[musicOn, musicTrack\]\)/);
+  assert.match(app, /noteWave: 'square' as OscillatorType/);
+  assert.match(app, /noteWave: 'triangle' as OscillatorType/);
 });
 test('prevents invalid UI moves and duplicate submissions', () => {
   assert.match(app, /operation\.current/);
