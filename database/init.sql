@@ -6,5 +6,6 @@ CREATE TABLE IF NOT EXISTS games (
     online BOOLEAN NOT NULL DEFAULT FALSE,
     red_token_hash BYTEA,
     yellow_token_hash BYTEA,
+    rematch_id UUID,
     CONSTRAINT moves_is_array CHECK (jsonb_typeof(moves) = 'array')
 );

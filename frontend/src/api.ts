@@ -10,6 +10,7 @@ export interface GameState {
   history: number[];
   online: boolean;
   playersJoined: number;
+  rematchId?: string;
   row?: number;
 }
 export interface OnlineGame {
@@ -53,7 +54,8 @@ export function isGameState(value: unknown): value is GameState {
     && Array.isArray(v.history) && v.history.length === v.moves
     && v.history.every(column => Number.isInteger(column) && column >= 0 && column < 7)
     && typeof v.online === 'boolean'
-    && Number.isInteger(v.playersJoined) && (v.playersJoined as number) >= 0 && (v.playersJoined as number) <= 2;
+    && Number.isInteger(v.playersJoined) && (v.playersJoined as number) >= 0 && (v.playersJoined as number) <= 2
+    && (v.rematchId === undefined || typeof v.rematchId === 'string');
 }
 export const createGame = () => request('/api/games', { method: 'POST' });
 export async function createOnlineGame(): Promise<OnlineGame> {
@@ -71,6 +73,17 @@ export async function joinGame(id: string): Promise<{ playerToken: string; playe
     throw new ApiError('The server returned an unexpected join response.', 200);
   }
   return { playerToken: body.playerToken, player: 2 };
+}
+export async function rematchGame(id: string, playerToken: string): Promise<OnlineGame> {
+  const body = await requestData(`/api/games/${encodeURIComponent(id)}/rematch`, {
+    method: 'POST',
+    headers: { 'X-Player-Token': playerToken },
+  });
+  if (!isGameState(body) || !('playerToken' in body) || typeof body.playerToken !== 'string'
+    || !('player' in body) || (body.player !== 1 && body.player !== 2)) {
+    throw new ApiError('The server returned an unexpected rematch response.', 200);
+  }
+  return { state: body, playerToken: body.playerToken, player: body.player };
 }
 export const getGame = (id: string) => request(`/api/games/${encodeURIComponent(id)}`);
 export const makeMove = (id: string, column: number, playerToken?: string) => request(`/api/games/${encodeURIComponent(id)}/moves`, {

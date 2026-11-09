@@ -15,12 +15,14 @@ import (
 )
 
 const testID = "123e4567-e89b-42d3-a456-426614174000"
+const rematchTestID = "123e4567-e89b-42d3-a456-426614174001"
 
 type memoryStore struct {
 	games        map[string]*game.Game
 	online       map[string]bool
 	redTokens    map[string]string
 	yellowTokens map[string]string
+	rematchIDs   map[string]string
 }
 
 func TestOnlineMatchJoinAndPlayerAuthorization(t *testing.T) {
@@ -94,6 +96,99 @@ func TestOnlineMatchJoinAndPlayerAuthorization(t *testing.T) {
 	}
 }
 
+func TestOnlineRematchRequiresPlayerAndPreservesSeats(t *testing.T) {
+	store := newMemoryStore()
+	h := Handler{Store: store}
+	gamePath := "/api/games/" + testID
+	store.games[testID] = game.New()
+	store.online[testID] = true
+	store.redTokens[testID] = "red-secret"
+	store.yellowTokens[testID] = "yellow-secret"
+	if w := requestWithToken(h, http.MethodPost, gamePath+"/rematch", "", "red-secret"); w.Code != http.StatusConflict {
+		t.Fatalf("rematch before game ends: %d %s", w.Code, w.Body.String())
+	}
+	for _, column := range []int{0, 1, 0, 1, 0, 1, 0} {
+		token := store.redTokens[testID]
+		if store.games[testID].Turn() == game.Yellow {
+			token = store.yellowTokens[testID]
+		}
+		if _, _, err := store.ApplyMove(context.Background(), testID, column, token); err != nil {
+			t.Fatalf("complete game: %v", err)
+		}
+	}
+
+	if w := request(h, http.MethodPost, gamePath+"/rematch", ""); w.Code != http.StatusForbidden {
+		t.Fatalf("spectator rematch: %d %s", w.Code, w.Body.String())
+	}
+	red := requestWithToken(h, http.MethodPost, gamePath+"/rematch", "", "red-secret")
+	if red.Code != http.StatusCreated {
+		t.Fatalf("red rematch: %d %s", red.Code, red.Body.String())
+	}
+	var redResponse struct {
+		ID          string `json:"id"`
+		Player      int    `json:"player"`
+		PlayerToken string `json:"playerToken"`
+		Status      string `json:"status"`
+		Players     int    `json:"playersJoined"`
+	}
+	if err := json.Unmarshal(red.Body.Bytes(), &redResponse); err != nil {
+		t.Fatal(err)
+	}
+	if redResponse.ID != rematchTestID || redResponse.Player != 1 || redResponse.PlayerToken == "" ||
+		redResponse.Status != string(game.InProgress) || redResponse.Players != 1 {
+		t.Fatalf("unexpected Red rematch response: %+v", redResponse)
+	}
+	redRetry := requestWithToken(h, http.MethodPost, gamePath+"/rematch", "", "red-secret")
+	var redRetryResponse struct {
+		PlayerToken string `json:"playerToken"`
+		Players     int    `json:"playersJoined"`
+	}
+	if redRetry.Code != http.StatusCreated {
+		t.Fatalf("retry Red rematch: %d %s", redRetry.Code, redRetry.Body.String())
+	}
+	if err := json.Unmarshal(redRetry.Body.Bytes(), &redRetryResponse); err != nil {
+		t.Fatal(err)
+	}
+	if redRetryResponse.PlayerToken != redResponse.PlayerToken || redRetryResponse.Players != 1 {
+		t.Fatalf("Red rematch retry changed credentials or seat state: %+v", redRetryResponse)
+	}
+
+	original := request(h, http.MethodGet, gamePath, "")
+	var sourceState struct {
+		RematchID string `json:"rematchId"`
+	}
+	if err := json.Unmarshal(original.Body.Bytes(), &sourceState); err != nil {
+		t.Fatal(err)
+	}
+	if sourceState.RematchID != rematchTestID {
+		t.Fatalf("source game did not expose rematch ID: %s", original.Body.String())
+	}
+
+	yellow := requestWithToken(h, http.MethodPost, gamePath+"/rematch", "", "yellow-secret")
+	if yellow.Code != http.StatusCreated {
+		t.Fatalf("yellow rematch: %d %s", yellow.Code, yellow.Body.String())
+	}
+	var yellowResponse struct {
+		ID          string `json:"id"`
+		Player      int    `json:"player"`
+		PlayerToken string `json:"playerToken"`
+		Players     int    `json:"playersJoined"`
+	}
+	if err := json.Unmarshal(yellow.Body.Bytes(), &yellowResponse); err != nil {
+		t.Fatal(err)
+	}
+	if yellowResponse.ID != rematchTestID || yellowResponse.Player != 2 ||
+		yellowResponse.PlayerToken == "" || yellowResponse.Players != 2 {
+		t.Fatalf("unexpected Yellow rematch response: %+v", yellowResponse)
+	}
+	if w := requestWithToken(h, http.MethodPost, "/api/games/"+rematchTestID+"/moves", `{"column":0}`, yellowResponse.PlayerToken); w.Code != http.StatusForbidden {
+		t.Fatalf("Yellow moved first in rematch: %d %s", w.Code, w.Body.String())
+	}
+	if w := requestWithToken(h, http.MethodPost, "/api/games/"+rematchTestID+"/moves", `{"column":0}`, redResponse.PlayerToken); w.Code != http.StatusOK {
+		t.Fatalf("Red could not move first in rematch: %d %s", w.Code, w.Body.String())
+	}
+}
+
 func (m *memoryStore) Create(_ context.Context) (string, *game.Game, error) {
 	g := game.New()
 	m.games[testID] = g
@@ -128,7 +223,52 @@ func (m *memoryStore) Get(_ context.Context, id string) (*repository.Match, erro
 			joined++
 		}
 	}
-	return &repository.Match{Game: g, Online: m.online[id], PlayersJoined: joined}, nil
+	return &repository.Match{Game: g, Online: m.online[id], PlayersJoined: joined, RematchID: m.rematchIDs[id]}, nil
+}
+func (m *memoryStore) Rematch(_ context.Context, id, token string) (string, *game.Game, string, int, int, error) {
+	match, err := m.Get(context.Background(), id)
+	if err != nil {
+		return "", nil, "", 0, 0, err
+	}
+	if !match.Online {
+		return "", nil, "", 0, 0, repository.ErrNotOnline
+	}
+	player := 0
+	switch token {
+	case m.redTokens[id]:
+		player = 1
+	case m.yellowTokens[id]:
+		player = 2
+	default:
+		return "", nil, "", 0, 0, repository.ErrInvalidPlayerToken
+	}
+	if token == "" || (player == 1 && m.redTokens[id] == "") || (player == 2 && m.yellowTokens[id] == "") {
+		return "", nil, "", 0, 0, repository.ErrInvalidPlayerToken
+	}
+	if match.Game.Status() == game.InProgress {
+		return "", nil, "", 0, 0, repository.ErrGameNotFinished
+	}
+	if m.rematchIDs[id] == "" {
+		m.rematchIDs[id] = rematchTestID
+		m.games[rematchTestID] = game.New()
+		m.online[rematchTestID] = true
+		m.redTokens[rematchTestID] = ""
+		m.yellowTokens[rematchTestID] = ""
+	}
+	newToken := fmt.Sprintf("rematch-player-%d", player)
+	if player == 1 {
+		m.redTokens[rematchTestID] = newToken
+	} else {
+		m.yellowTokens[rematchTestID] = newToken
+	}
+	joined := 0
+	if m.redTokens[rematchTestID] != "" {
+		joined++
+	}
+	if m.yellowTokens[rematchTestID] != "" {
+		joined++
+	}
+	return rematchTestID, game.New(), newToken, player, joined, nil
 }
 func (m *memoryStore) Join(_ context.Context, id string) (string, error) {
 	if _, ok := m.games[id]; !ok {
@@ -169,7 +309,7 @@ func (m *memoryStore) ApplyMove(_ context.Context, id string, c int, token strin
 func newMemoryStore() *memoryStore {
 	return &memoryStore{
 		games: map[string]*game.Game{}, online: map[string]bool{},
-		redTokens: map[string]string{}, yellowTokens: map[string]string{},
+		redTokens: map[string]string{}, yellowTokens: map[string]string{}, rematchIDs: map[string]string{},
 	}
 }
 func request(h http.Handler, method, path, body string) *httptest.ResponseRecorder {

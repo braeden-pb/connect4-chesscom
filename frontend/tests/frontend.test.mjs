@@ -11,6 +11,9 @@ test('uses the existing REST endpoints', () => {
   assert.match(api, /X-Player-Token/);
   assert.match(api, /createOnlineGame/);
   assert.match(api, /joinGame/);
+  assert.match(api, /rematchGame/);
+  assert.match(api, /\/rematch/);
+  assert.match(api, /X-Player-Token/);
 });
 test('renders 7 columns of 6 cells and sends moves', () => {
   assert.match(app, /Array\.from\(\{length:7\}/);
@@ -105,6 +108,9 @@ test('supports online matches, invitation links, and spectators', () => {
   assert.match(app, /setInterval\(\(\) => \{\s*void getGame\(game\.id\)/);
   assert.match(app, /latest\.moves > current\.moves \|\| latest\.playersJoined !== current\.playersJoined/);
   assert.match(app, /ONLINE_TOKENS_KEY/);
+  assert.match(app, /game\.rematchId \? 'Join rematch' : 'Play again'/);
+  assert.match(app, /rematchGame\(game\.id, onlineToken\)/);
+  assert.match(app, /latest\.rematchId !== current\.rematchId/);
   assert.match(app, /new URLSearchParams\(window\.location\.search\)\.get\('game'\)/);
   assert.match(app, /game\.online && \(!onlineToken \|\| onlinePlayer !== game\.turn \|\| game\.playersJoined < 2\)/);
   assert.match(css, /\.online-lobby/);

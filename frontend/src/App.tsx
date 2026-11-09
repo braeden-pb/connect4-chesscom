@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ApiError, createGame, createOnlineGame, getGame, joinGame, makeMove, type GameState } from './api';
+import { ApiError, createGame, createOnlineGame, getGame, joinGame, makeMove, rematchGame, type GameState } from './api';
 import { findWinningLine } from './winningLine.mjs';
 
 const STORAGE_KEY = 'connect4.gameId';
@@ -289,7 +289,8 @@ export default function App() {
         if (!active) return;
         const current = gameRef.current;
         if (current?.id !== latest.id
-          || !(latest.moves > current.moves || latest.playersJoined !== current.playersJoined || latest.status !== current.status)) return;
+          || !(latest.moves > current.moves || latest.playersJoined !== current.playersJoined || latest.status !== current.status
+            || latest.rematchId !== current.rematchId)) return;
         if (current.status === 'in_progress' && latest.status === 'won'
           && onlinePlayer !== null && onlinePlayer !== latest.winner) setCelebration(latest.moves);
         gameRef.current = latest;
@@ -346,6 +347,32 @@ export default function App() {
       setGame(await getGame(game.id));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not join this game.');
+    } finally {
+      operation.current = false;
+      setBusy(false);
+    }
+  };
+
+  const startOnlineRematch = async () => {
+    if (!game?.online || !onlineToken || onlinePlayer === null || operation.current) return;
+    operation.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      const created = await rematchGame(game.id, onlineToken);
+      const tokens = readOnlineTokens();
+      tokens[created.state.id] = { token: created.playerToken, player: created.player };
+      localStorage.setItem(ONLINE_TOKENS_KEY, JSON.stringify(tokens));
+      localStorage.setItem(STORAGE_KEY, created.state.id);
+      window.history.replaceState(null, '', `?game=${encodeURIComponent(created.state.id)}`);
+      setOnlinePlayer(created.player);
+      setOnlineToken(created.playerToken);
+      setGame(created.state);
+      setLastDrop(null);
+      setCelebration(null);
+      setInviteCopied(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not start the rematch.');
     } finally {
       operation.current = false;
       setBusy(false);
@@ -475,6 +502,7 @@ export default function App() {
           <div className="online-lobby-copy"><strong>Online match · {game.playersJoined}/2 players</strong><span>{onlinePlayer ? `You are Player ${onlinePlayer} (${playerName(onlinePlayer)}).` : 'You are watching as a spectator; spectators cannot make moves.'}</span></div>
           <div className="online-lobby-actions">
             {onlinePlayer === null && game.playersJoined < 2 && <button type="button" className="online-join" onClick={() => void joinOnlineMatch()} disabled={busy || loading}>Join as Player 2</button>}
+            {onlinePlayer !== null && game.status !== 'in_progress' && <button type="button" className="online-join" onClick={() => void startOnlineRematch()} disabled={busy || loading}>{game.rematchId ? 'Join rematch' : 'Play again'}</button>}
             <button type="button" className="online-share" onClick={() => void copyInviteLink()}>{inviteCopied ? 'Link copied!' : 'Copy game link'}</button>
           </div>
         </section> : <div className="online-prompt"><span>Want to play with someone online?</span><button type="button" className="online-start" onClick={() => void startOnlineMatch()} disabled={busy || loading}>Start online game</button></div>}

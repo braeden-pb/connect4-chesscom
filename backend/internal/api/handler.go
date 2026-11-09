@@ -22,13 +22,14 @@ type state struct {
 	History       []int                                `json:"history"`
 	Online        bool                                 `json:"online"`
 	PlayersJoined int                                  `json:"playersJoined"`
+	RematchID     string                               `json:"rematchId,omitempty"`
 }
 
 func snapshot(id string, match *repository.Match) state {
 	return state{
 		ID: id, Board: match.Game.Board(), Turn: match.Game.Turn(), Status: match.Game.Status(),
 		Winner: match.Game.Winner(), Moves: match.Game.Moves(), History: match.Game.History(),
-		Online: match.Online, PlayersJoined: match.PlayersJoined,
+		Online: match.Online, PlayersJoined: match.PlayersJoined, RematchID: match.RematchID,
 	}
 }
 func writeJSON(w http.ResponseWriter, code int, v any) {
@@ -109,6 +110,24 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"playerToken": token, "player": 2})
 		return
 	}
+	if parts[3] == "rematch" {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			fail(w, 405, "method not allowed")
+			return
+		}
+		rematchID, g, token, player, joined, err := h.Store.Rematch(r.Context(), id, r.Header.Get("X-Player-Token"))
+		if err != nil {
+			storeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, struct {
+			state
+			PlayerToken string `json:"playerToken"`
+			Player      int    `json:"player"`
+		}{snapshot(rematchID, &repository.Match{Game: g, Online: true, PlayersJoined: joined}), token, player})
+		return
+	}
 	if parts[3] != "moves" {
 		fail(w, 404, "not found")
 		return
@@ -174,6 +193,10 @@ func storeError(w http.ResponseWriter, err error) {
 		fail(w, 403, "this browser is not allowed to make that move")
 	case errors.Is(err, repository.ErrWaitingForPlayer):
 		fail(w, 409, "waiting for the second player to join")
+	case errors.Is(err, repository.ErrGameNotFinished):
+		fail(w, 409, "the game must be finished before requesting a rematch")
+	case errors.Is(err, repository.ErrRematchStarted):
+		fail(w, 409, "the rematch has already started")
 	case errors.Is(err, game.ErrInvalidColumn):
 		fail(w, 400, err.Error())
 	case errors.Is(err, game.ErrColumnFull), errors.Is(err, game.ErrGameOver):

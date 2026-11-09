@@ -49,6 +49,13 @@ func newPlayerToken() (string, []byte, error) {
 	return value, hash[:], nil
 }
 
+func rematchPlayerToken(gameID, rematchID, playerToken string) (string, []byte) {
+	value := sha256.Sum256([]byte("connect4-rematch-v1\x00" + gameID + "\x00" + rematchID + "\x00" + playerToken))
+	token := base64.RawURLEncoding.EncodeToString(value[:])
+	hash := sha256.Sum256([]byte(token))
+	return token, hash[:]
+}
+
 func (p *Postgres) CreateOnline(ctx context.Context) (string, *game.Game, string, error) {
 	id, err := newID()
 	if err != nil {
@@ -85,7 +92,9 @@ func (p *Postgres) Get(ctx context.Context, id string) (*Match, error) {
 	var data []byte
 	var online bool
 	var redTokenHash, yellowTokenHash []byte
-	err := p.DB.QueryRowContext(ctx, `SELECT moves, online, red_token_hash, yellow_token_hash FROM games WHERE id=$1`, id).Scan(&data, &online, &redTokenHash, &yellowTokenHash)
+	var rematchID sql.NullString
+	err := p.DB.QueryRowContext(ctx, `SELECT moves, online, red_token_hash, yellow_token_hash, rematch_id FROM games WHERE id=$1`, id).
+		Scan(&data, &online, &redTokenHash, &yellowTokenHash, &rematchID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -107,7 +116,7 @@ func (p *Postgres) Get(ctx context.Context, id string) (*Match, error) {
 			joined++
 		}
 	}
-	return &Match{Game: g, Online: online, PlayersJoined: joined}, nil
+	return &Match{Game: g, Online: online, PlayersJoined: joined, RematchID: rematchID.String}, nil
 }
 
 func (p *Postgres) Join(ctx context.Context, id string) (string, error) {
@@ -136,6 +145,112 @@ func (p *Postgres) Join(ctx context.Context, id string) (string, error) {
 	return token, nil
 }
 
+func (p *Postgres) Rematch(ctx context.Context, id, playerToken string) (string, *game.Game, string, int, int, error) {
+	tx, err := p.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return "", nil, "", 0, 0, err
+	}
+	defer tx.Rollback()
+
+	var data []byte
+	var online bool
+	var redTokenHash, yellowTokenHash []byte
+	var rematchID sql.NullString
+	err = tx.QueryRowContext(ctx, `SELECT moves, online, red_token_hash, yellow_token_hash, rematch_id FROM games WHERE id=$1 FOR UPDATE`,
+		id).Scan(&data, &online, &redTokenHash, &yellowTokenHash, &rematchID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil, "", 0, 0, ErrNotFound
+	}
+	if err != nil {
+		return "", nil, "", 0, 0, err
+	}
+	if !online {
+		return "", nil, "", 0, 0, ErrNotOnline
+	}
+	providedHash := sha256.Sum256([]byte(playerToken))
+	player := 0
+	switch {
+	case len(redTokenHash) > 0 && subtle.ConstantTimeCompare(providedHash[:], redTokenHash) == 1:
+		player = 1
+	case len(yellowTokenHash) > 0 && subtle.ConstantTimeCompare(providedHash[:], yellowTokenHash) == 1:
+		player = 2
+	default:
+		return "", nil, "", 0, 0, ErrInvalidPlayerToken
+	}
+	original, err := replay(data)
+	if err != nil {
+		return "", nil, "", 0, 0, err
+	}
+	if original.Status() == game.InProgress {
+		return "", nil, "", 0, 0, ErrGameNotFinished
+	}
+
+	var newToken string
+	var newTokenHash []byte
+	if !rematchID.Valid {
+		newID, idErr := newID()
+		if idErr != nil {
+			return "", nil, "", 0, 0, idErr
+		}
+		newToken, newTokenHash = rematchPlayerToken(id, newID, playerToken)
+		if player == 1 {
+			_, err = tx.ExecContext(ctx, `INSERT INTO games (id, moves, online, red_token_hash) VALUES ($1, '[]'::jsonb, TRUE, $2)`,
+				newID, newTokenHash)
+		} else {
+			_, err = tx.ExecContext(ctx, `INSERT INTO games (id, moves, online, yellow_token_hash) VALUES ($1, '[]'::jsonb, TRUE, $2)`,
+				newID, newTokenHash)
+		}
+		if err != nil {
+			return "", nil, "", 0, 0, err
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE games SET rematch_id=$2, updated_at=NOW() WHERE id=$1`, id, newID); err != nil {
+			return "", nil, "", 0, 0, err
+		}
+		rematchID = sql.NullString{String: newID, Valid: true}
+	} else {
+		var rematchMoves []byte
+		err = tx.QueryRowContext(ctx, `SELECT moves FROM games WHERE id=$1 FOR UPDATE`, rematchID.String).Scan(&rematchMoves)
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil, "", 0, 0, ErrNotFound
+		}
+		if err != nil {
+			return "", nil, "", 0, 0, err
+		}
+		next, replayErr := replay(rematchMoves)
+		if replayErr != nil {
+			return "", nil, "", 0, 0, replayErr
+		}
+		if next.Moves() > 0 {
+			return "", nil, "", 0, 0, ErrRematchStarted
+		}
+		newToken, newTokenHash = rematchPlayerToken(id, rematchID.String, playerToken)
+		column := "red_token_hash"
+		if player == 2 {
+			column = "yellow_token_hash"
+		}
+		query := fmt.Sprintf(`UPDATE games SET %s=$2, updated_at=NOW() WHERE id=$1`, column)
+		if _, err = tx.ExecContext(ctx, query, rematchID.String, newTokenHash); err != nil {
+			return "", nil, "", 0, 0, err
+		}
+	}
+	var newRedHash, newYellowHash []byte
+	if err = tx.QueryRowContext(ctx, `SELECT red_token_hash, yellow_token_hash FROM games WHERE id=$1`, rematchID.String).
+		Scan(&newRedHash, &newYellowHash); err != nil {
+		return "", nil, "", 0, 0, err
+	}
+	joined := 0
+	if len(newRedHash) > 0 {
+		joined++
+	}
+	if len(newYellowHash) > 0 {
+		joined++
+	}
+	if err = tx.Commit(); err != nil {
+		return "", nil, "", 0, 0, err
+	}
+	return rematchID.String, game.New(), newToken, player, joined, nil
+}
+
 func (p *Postgres) ApplyMove(ctx context.Context, id string, column int, token string) (_ *Match, _ int, err error) {
 	tx, err := p.DB.BeginTx(ctx, nil)
 	if err != nil {
@@ -145,7 +260,9 @@ func (p *Postgres) ApplyMove(ctx context.Context, id string, column int, token s
 	var data []byte
 	var online bool
 	var redTokenHash, yellowTokenHash []byte
-	err = tx.QueryRowContext(ctx, `SELECT moves, online, red_token_hash, yellow_token_hash FROM games WHERE id=$1 FOR UPDATE`, id).Scan(&data, &online, &redTokenHash, &yellowTokenHash)
+	var rematchID sql.NullString
+	err = tx.QueryRowContext(ctx, `SELECT moves, online, red_token_hash, yellow_token_hash, rematch_id FROM games WHERE id=$1 FOR UPDATE`,
+		id).Scan(&data, &online, &redTokenHash, &yellowTokenHash, &rematchID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, -1, ErrNotFound
 	}
@@ -201,5 +318,5 @@ func (p *Postgres) ApplyMove(ctx context.Context, id string, column int, token s
 			joined++
 		}
 	}
-	return &Match{Game: g, Online: online, PlayersJoined: joined}, row, nil
+	return &Match{Game: g, Online: online, PlayersJoined: joined, RematchID: rematchID.String}, row, nil
 }

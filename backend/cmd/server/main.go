@@ -48,6 +48,7 @@ func main() {
 		`ALTER TABLE games ADD COLUMN IF NOT EXISTS online BOOLEAN NOT NULL DEFAULT FALSE`,
 		`ALTER TABLE games ADD COLUMN IF NOT EXISTS red_token_hash BYTEA`,
 		`ALTER TABLE games ADD COLUMN IF NOT EXISTS yellow_token_hash BYTEA`,
+		`ALTER TABLE games ADD COLUMN IF NOT EXISTS rematch_id UUID`,
 	} {
 		if _, err = db.ExecContext(ctx, migration); err != nil {
 			log.Fatal(err)
