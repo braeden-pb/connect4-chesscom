@@ -44,6 +44,15 @@ func main() {
 	if err = db.PingContext(ctx); err != nil {
 		log.Fatal(err)
 	}
+	for _, migration := range []string{
+		`ALTER TABLE games ADD COLUMN IF NOT EXISTS online BOOLEAN NOT NULL DEFAULT FALSE`,
+		`ALTER TABLE games ADD COLUMN IF NOT EXISTS red_token_hash BYTEA`,
+		`ALTER TABLE games ADD COLUMN IF NOT EXISTS yellow_token_hash BYTEA`,
+	} {
+		if _, err = db.ExecContext(ctx, migration); err != nil {
+			log.Fatal(err)
+		}
+	}
 	addr := os.Getenv("ADDR")
 	if addr == "" {
 		addr = ":8080"

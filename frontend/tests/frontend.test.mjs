@@ -7,12 +7,15 @@ const vite = readFileSync(new URL('../vite.config.ts', import.meta.url), 'utf8')
 test('uses the existing REST endpoints', () => {
   assert.match(api, /request\('\/api\/games', \{ method: 'POST' \}\)/);
   assert.match(api, /request\(`\/api\/games\/\$\{encodeURIComponent\(id\)\}`\)/);
-  assert.match(api, /moves`, \{ method: 'POST', body: JSON\.stringify\(\{ column \}\)/);
+  assert.match(api, /moves`, \{\s*method: 'POST',\s*body: JSON\.stringify\(\{ column \}\)/);
+  assert.match(api, /X-Player-Token/);
+  assert.match(api, /createOnlineGame/);
+  assert.match(api, /joinGame/);
 });
 test('renders 7 columns of 6 cells and sends moves', () => {
   assert.match(app, /Array\.from\(\{length:7\}/);
   assert.match(app, /Array\.from\(\{length:6\}/);
-  assert.match(app, /await makeMove\(game\.id, column\)/);
+  assert.match(app, /await makeMove\(game\.id, column, game\.online \? onlineToken : undefined\)/);
   assert.match(api, /history: number\[\]/);
   assert.match(app, /game\.history\.map\(\(column, index\)/);
   assert.match(app, /Move history/);
@@ -21,7 +24,7 @@ test('handles wins, draws, turn display, and new games', () => {
   assert.match(app, /game\.status === 'won'/);
   assert.match(app, /game\.status === 'draw'/);
   assert.match(app, /game\.turn/);
-  assert.match(app, /celebration !== null && game\?\.status === 'won' && <div key=\{`\$\{game\.id\}-\$\{celebration\}-winner`\} className=\{`winner-overlay winner-overlay-\$\{game\.winner\}`\}/);
+  assert.match(app, /celebration !== null && game\?\.status === 'won' && <div key=\{`\$\{game\.id\}-\$\{celebration\}-winner`\} className=\{`winner-overlay winner-overlay-\$\{game\.winner\} /);
   assert.match(app, /\{playerName\(game\.winner\)\} team wins!/);
   assert.match(app, /onClick=\{\(\) => void newGame\(\)\}/);
 });
@@ -79,7 +82,7 @@ test('persists match wins and supports keyboard board navigation', () => {
   assert.match(app, /tabIndex=\{col === focusedColumn \? 0 : -1\}/);
   assert.match(app, /aria-keyshortcuts="ArrowLeft ArrowRight Enter Space"/);
   assert.doesNotMatch(app, /event\.key === 'Home'|event\.key === 'End'/);
-  assert.match(app, /disabled=\{!game \|\| isFinished\} aria-disabled=\{busy \|\|/);
+  assert.match(app, /disabled=\{!game \|\| isFinished\} aria-disabled=\{!canMove \|\|/);
   assert.match(css, /\.board-column:focus-visible\{outline:3px solid #fff/);
   assert.match(app, /className="keyboard-guide"[\s\S]*Press <kbd>Tab<\/kbd> until a game column has a white outline[\s\S]*Use <kbd>←<\/kbd> and <kbd>→<\/kbd> to choose a column[\s\S]*Press <kbd>Enter<\/kbd> or <kbd>Space<\/kbd> to drop your disc/);
   assert.doesNotMatch(app, /<kbd>Home<\/kbd>|<kbd>End<\/kbd>/);
@@ -91,4 +94,18 @@ test('supports API errors and state restoration', () => {
   assert.match(api, /response\.ok/);
   assert.match(app, /localStorage\.getItem/);
   assert.match(app, /getGame\(id\)/);
+});
+test('supports online matches, invitation links, and spectators', () => {
+  const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
+  assert.match(app, /Start online game/);
+  assert.match(app, /Copy game link/);
+  assert.match(app, /Join as Player 2/);
+  assert.match(app, /Spectating · read-only/);
+  assert.match(app, /game\.online && game\.status === 'won' && onlinePlayer !== null && onlinePlayer !== game\.winner \? `You lost — \$\{playerName\(game\.winner\)\} wins!`/);
+  assert.match(app, /setInterval\(\(\) => \{\s*void getGame\(game\.id\)/);
+  assert.match(app, /latest\.moves > current\.moves \|\| latest\.playersJoined !== current\.playersJoined/);
+  assert.match(app, /ONLINE_TOKENS_KEY/);
+  assert.match(app, /new URLSearchParams\(window\.location\.search\)\.get\('game'\)/);
+  assert.match(app, /game\.online && \(!onlineToken \|\| onlinePlayer !== game\.turn \|\| game\.playersJoined < 2\)/);
+  assert.match(css, /\.online-lobby/);
 });

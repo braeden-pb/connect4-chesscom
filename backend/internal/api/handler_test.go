@@ -16,27 +16,161 @@ import (
 
 const testID = "123e4567-e89b-42d3-a456-426614174000"
 
-type memoryStore struct{ games map[string]*game.Game }
+type memoryStore struct {
+	games        map[string]*game.Game
+	online       map[string]bool
+	redTokens    map[string]string
+	yellowTokens map[string]string
+}
+
+func TestOnlineMatchJoinAndPlayerAuthorization(t *testing.T) {
+	h := Handler{Store: newMemoryStore()}
+	created := request(h, http.MethodPost, "/api/games/online", "")
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create online game: %d %s", created.Code, created.Body.String())
+	}
+	var red struct {
+		ID          string `json:"id"`
+		Player      int    `json:"player"`
+		PlayerToken string `json:"playerToken"`
+		Online      bool   `json:"online"`
+		Players     int    `json:"playersJoined"`
+	}
+	if err := json.Unmarshal(created.Body.Bytes(), &red); err != nil {
+		t.Fatal(err)
+	}
+	if red.Player != 1 || red.PlayerToken == "" || !red.Online || red.Players != 1 {
+		t.Fatalf("unexpected creator response: %+v", red)
+	}
+
+	gamePath := "/api/games/" + red.ID
+	stateResponse := request(h, http.MethodGet, gamePath, "")
+	var publicState struct {
+		Online  bool `json:"online"`
+		Players int  `json:"playersJoined"`
+	}
+	if err := json.Unmarshal(stateResponse.Body.Bytes(), &publicState); err != nil {
+		t.Fatal(err)
+	}
+	if !publicState.Online || publicState.Players != 1 || bytes.Contains(stateResponse.Body.Bytes(), []byte(red.PlayerToken)) {
+		t.Fatalf("public state leaked credentials or omitted lobby state: %s", stateResponse.Body.String())
+	}
+
+	if w := request(h, http.MethodPost, gamePath+"/moves", `{"column":0}`); w.Code != http.StatusConflict {
+		t.Fatalf("unauthenticated move: %d %s", w.Code, w.Body.String())
+	}
+	if w := requestWithToken(h, http.MethodPost, gamePath+"/moves", `{"column":0}`, red.PlayerToken); w.Code != http.StatusConflict {
+		t.Fatalf("move before second player joins: %d %s", w.Code, w.Body.String())
+	}
+
+	joined := request(h, http.MethodPost, gamePath+"/join", "")
+	if joined.Code != http.StatusOK {
+		t.Fatalf("join: %d %s", joined.Code, joined.Body.String())
+	}
+	var yellow struct {
+		Player      int    `json:"player"`
+		PlayerToken string `json:"playerToken"`
+	}
+	if err := json.Unmarshal(joined.Body.Bytes(), &yellow); err != nil {
+		t.Fatal(err)
+	}
+	if yellow.Player != 2 || yellow.PlayerToken == "" || yellow.PlayerToken == red.PlayerToken {
+		t.Fatalf("unexpected join response: %+v", yellow)
+	}
+	if w := request(h, http.MethodPost, gamePath+"/moves", `{"column":0}`); w.Code != http.StatusForbidden {
+		t.Fatalf("unauthenticated move after join: %d %s", w.Code, w.Body.String())
+	}
+	if w := requestWithToken(h, http.MethodPost, gamePath+"/moves", `{"column":0}`, red.PlayerToken); w.Code != http.StatusOK {
+		t.Fatalf("red move: %d %s", w.Code, w.Body.String())
+	}
+	if w := requestWithToken(h, http.MethodPost, gamePath+"/moves", `{"column":1}`, red.PlayerToken); w.Code != http.StatusForbidden {
+		t.Fatalf("out-of-turn red move: %d %s", w.Code, w.Body.String())
+	}
+	if w := requestWithToken(h, http.MethodPost, gamePath+"/moves", `{"column":1}`, yellow.PlayerToken); w.Code != http.StatusOK {
+		t.Fatalf("yellow move: %d %s", w.Code, w.Body.String())
+	}
+	if w := request(h, http.MethodPost, gamePath+"/join", ""); w.Code != http.StatusConflict {
+		t.Fatalf("third player join: %d %s", w.Code, w.Body.String())
+	}
+}
 
 func (m *memoryStore) Create(_ context.Context) (string, *game.Game, error) {
 	g := game.New()
 	m.games[testID] = g
 	return testID, g, nil
 }
-func (m *memoryStore) Get(_ context.Context, id string) (*game.Game, error) {
+func requestWithToken(h http.Handler, method, path, body, token string) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(method, path, bytes.NewBufferString(body))
+	r.Header.Set("X-Player-Token", token)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	return w
+}
+func (m *memoryStore) CreateOnline(_ context.Context) (string, *game.Game, string, error) {
+	g := game.New()
+	m.games[testID] = g
+	m.online[testID] = true
+	m.redTokens[testID] = "red-secret"
+	return testID, g, "red-secret", nil
+}
+func (m *memoryStore) Get(_ context.Context, id string) (*repository.Match, error) {
 	g, ok := m.games[id]
 	if !ok {
 		return nil, repository.ErrNotFound
 	}
-	return g, nil
+	joined := 2
+	if m.online[id] {
+		joined = 0
+		if m.redTokens[id] != "" {
+			joined++
+		}
+		if m.yellowTokens[id] != "" {
+			joined++
+		}
+	}
+	return &repository.Match{Game: g, Online: m.online[id], PlayersJoined: joined}, nil
 }
-func (m *memoryStore) ApplyMove(_ context.Context, id string, c int) (*game.Game, int, error) {
-	g, err := m.Get(context.Background(), id)
+func (m *memoryStore) Join(_ context.Context, id string) (string, error) {
+	if _, ok := m.games[id]; !ok {
+		return "", repository.ErrNotFound
+	}
+	if !m.online[id] {
+		return "", repository.ErrNotOnline
+	}
+	if m.yellowTokens[id] != "" {
+		return "", repository.ErrAlreadyJoined
+	}
+	m.yellowTokens[id] = "yellow-secret"
+	return "yellow-secret", nil
+}
+func (m *memoryStore) ApplyMove(_ context.Context, id string, c int, token string) (*repository.Match, int, error) {
+	match, err := m.Get(context.Background(), id)
 	if err != nil {
 		return nil, -1, err
 	}
-	row, err := g.Drop(c)
-	return g, row, err
+	if match.Online {
+		if match.PlayersJoined < 2 {
+			return nil, -1, repository.ErrWaitingForPlayer
+		}
+		expected := m.redTokens[id]
+		if match.Game.Turn() == game.Yellow {
+			expected = m.yellowTokens[id]
+		}
+		if token != expected || expected == "" {
+			return nil, -1, repository.ErrInvalidPlayerToken
+		}
+	} else if token != "" {
+		return nil, -1, repository.ErrNotOnline
+	}
+	row, err := match.Game.Drop(c)
+	return match, row, err
+}
+
+func newMemoryStore() *memoryStore {
+	return &memoryStore{
+		games: map[string]*game.Game{}, online: map[string]bool{},
+		redTokens: map[string]string{}, yellowTokens: map[string]string{},
+	}
 }
 func request(h http.Handler, method, path, body string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, path, bytes.NewBufferString(body))
@@ -45,7 +179,7 @@ func request(h http.Handler, method, path, body string) *httptest.ResponseRecord
 	return w
 }
 func TestLifecycle(t *testing.T) {
-	h := Handler{Store: &memoryStore{games: map[string]*game.Game{}}}
+	h := Handler{Store: newMemoryStore()}
 	w := request(h, "POST", "/api/games", "")
 	if w.Code != 201 {
 		t.Fatalf("create: %d %s", w.Code, w.Body.String())
@@ -67,6 +201,7 @@ func TestLifecycle(t *testing.T) {
 		Turn    int       `json:"turn"`
 		Board   [6][7]int `json:"board"`
 		History []int     `json:"history"`
+		Online  bool      `json:"online"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
@@ -80,7 +215,8 @@ func TestLifecycle(t *testing.T) {
 	}
 }
 func TestErrors(t *testing.T) {
-	h := Handler{Store: &memoryStore{games: map[string]*game.Game{testID: game.New()}}}
+	h := Handler{Store: newMemoryStore()}
+	h.Store.(*memoryStore).games[testID] = game.New()
 	cases := []struct {
 		method, path, body string
 		code               int
@@ -113,7 +249,8 @@ func TestErrors(t *testing.T) {
 	}
 }
 func TestGameOverConflict(t *testing.T) {
-	h := Handler{Store: &memoryStore{games: map[string]*game.Game{testID: game.New()}}}
+	h := Handler{Store: newMemoryStore()}
+	h.Store.(*memoryStore).games[testID] = game.New()
 	for _, c := range []int{0, 1, 0, 1, 0, 1, 0} {
 		w := request(h, "POST", "/api/games/"+testID+"/moves", `{"column":`+string(rune('0'+c))+`}`)
 		if w.Code != 200 {
@@ -130,7 +267,7 @@ var _ = errors.Is
 // TestCompleteMatchOverHTTP exercises the public HTTP contract from creation
 // through a win, including the final persisted state and post-game rejection.
 func TestCompleteMatchOverHTTP(t *testing.T) {
-	h := Handler{Store: &memoryStore{games: map[string]*game.Game{}}}
+	h := Handler{Store: newMemoryStore()}
 	created := request(h, http.MethodPost, "/api/games", "")
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create: %d", created.Code)

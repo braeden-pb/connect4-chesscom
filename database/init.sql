@@ -3,5 +3,8 @@ CREATE TABLE IF NOT EXISTS games (
     moves JSONB NOT NULL DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    online BOOLEAN NOT NULL DEFAULT FALSE,
+    red_token_hash BYTEA,
+    yellow_token_hash BYTEA,
     CONSTRAINT moves_is_array CHECK (jsonb_typeof(moves) = 'array')
 );

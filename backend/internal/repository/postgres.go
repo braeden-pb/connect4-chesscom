@@ -4,7 +4,10 @@ import (
 	"connect4/internal/game"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -29,11 +32,36 @@ func (p *Postgres) Create(ctx context.Context) (string, *game.Game, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	_, err = p.DB.ExecContext(ctx, `INSERT INTO games (id, moves) VALUES ($1, '[]'::jsonb)`, id)
+	_, err = p.DB.ExecContext(ctx, `INSERT INTO games (id, moves, online) VALUES ($1, '[]'::jsonb, FALSE)`, id)
 	if err != nil {
 		return "", nil, err
 	}
 	return id, game.New(), nil
+}
+
+func newPlayerToken() (string, []byte, error) {
+	token := make([]byte, 32)
+	if _, err := rand.Read(token); err != nil {
+		return "", nil, err
+	}
+	value := base64.RawURLEncoding.EncodeToString(token)
+	hash := sha256.Sum256([]byte(value))
+	return value, hash[:], nil
+}
+
+func (p *Postgres) CreateOnline(ctx context.Context) (string, *game.Game, string, error) {
+	id, err := newID()
+	if err != nil {
+		return "", nil, "", err
+	}
+	token, tokenHash, err := newPlayerToken()
+	if err != nil {
+		return "", nil, "", err
+	}
+	if _, err = p.DB.ExecContext(ctx, `INSERT INTO games (id, moves, online, red_token_hash) VALUES ($1, '[]'::jsonb, TRUE, $2)`, id, tokenHash); err != nil {
+		return "", nil, "", err
+	}
+	return id, game.New(), token, nil
 }
 
 func replay(data []byte) (*game.Game, error) {
@@ -53,26 +81,71 @@ func replay(data []byte) (*game.Game, error) {
 	return g, nil
 }
 
-func (p *Postgres) Get(ctx context.Context, id string) (*game.Game, error) {
+func (p *Postgres) Get(ctx context.Context, id string) (*Match, error) {
 	var data []byte
-	err := p.DB.QueryRowContext(ctx, `SELECT moves FROM games WHERE id=$1`, id).Scan(&data)
+	var online bool
+	var redTokenHash, yellowTokenHash []byte
+	err := p.DB.QueryRowContext(ctx, `SELECT moves, online, red_token_hash, yellow_token_hash FROM games WHERE id=$1`, id).Scan(&data, &online, &redTokenHash, &yellowTokenHash)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	return replay(data)
+	g, err := replay(data)
+	if err != nil {
+		return nil, err
+	}
+	joined := 0
+	if !online {
+		joined = 2
+	} else {
+		if len(redTokenHash) > 0 {
+			joined++
+		}
+		if len(yellowTokenHash) > 0 {
+			joined++
+		}
+	}
+	return &Match{Game: g, Online: online, PlayersJoined: joined}, nil
 }
 
-func (p *Postgres) ApplyMove(ctx context.Context, id string, column int) (_ *game.Game, _ int, err error) {
+func (p *Postgres) Join(ctx context.Context, id string) (string, error) {
+	token, tokenHash, err := newPlayerToken()
+	if err != nil {
+		return "", err
+	}
+	result, err := p.DB.ExecContext(ctx, `UPDATE games SET yellow_token_hash=$2 WHERE id=$1 AND online=TRUE AND yellow_token_hash IS NULL`, id, tokenHash)
+	if err != nil {
+		return "", err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return "", err
+	}
+	if count == 0 {
+		match, getErr := p.Get(ctx, id)
+		if getErr != nil {
+			return "", getErr
+		}
+		if !match.Online {
+			return "", ErrNotOnline
+		}
+		return "", ErrAlreadyJoined
+	}
+	return token, nil
+}
+
+func (p *Postgres) ApplyMove(ctx context.Context, id string, column int, token string) (_ *Match, _ int, err error) {
 	tx, err := p.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, -1, err
 	}
 	defer tx.Rollback()
 	var data []byte
-	err = tx.QueryRowContext(ctx, `SELECT moves FROM games WHERE id=$1 FOR UPDATE`, id).Scan(&data)
+	var online bool
+	var redTokenHash, yellowTokenHash []byte
+	err = tx.QueryRowContext(ctx, `SELECT moves, online, red_token_hash, yellow_token_hash FROM games WHERE id=$1 FOR UPDATE`, id).Scan(&data, &online, &redTokenHash, &yellowTokenHash)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, -1, ErrNotFound
 	}
@@ -82,6 +155,21 @@ func (p *Postgres) ApplyMove(ctx context.Context, id string, column int) (_ *gam
 	g, err := replay(data)
 	if err != nil {
 		return nil, -1, err
+	}
+	if online {
+		if len(redTokenHash) == 0 || len(yellowTokenHash) == 0 {
+			return nil, -1, ErrWaitingForPlayer
+		}
+		providedHash := sha256.Sum256([]byte(token))
+		expectedHash := redTokenHash
+		if g.Turn() == game.Yellow {
+			expectedHash = yellowTokenHash
+		}
+		if len(expectedHash) == 0 || subtle.ConstantTimeCompare(providedHash[:], expectedHash) != 1 {
+			return nil, -1, ErrInvalidPlayerToken
+		}
+	} else if token != "" {
+		return nil, -1, ErrNotOnline
 	}
 	row, err := g.Drop(column)
 	if err != nil {
@@ -102,5 +190,16 @@ func (p *Postgres) ApplyMove(ctx context.Context, id string, column int) (_ *gam
 	if err = tx.Commit(); err != nil {
 		return nil, -1, err
 	}
-	return g, row, nil
+	joined := 0
+	if !online {
+		joined = 2
+	} else {
+		if len(redTokenHash) > 0 {
+			joined++
+		}
+		if len(yellowTokenHash) > 0 {
+			joined++
+		}
+	}
+	return &Match{Game: g, Online: online, PlayersJoined: joined}, row, nil
 }

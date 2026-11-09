@@ -13,19 +13,22 @@ import (
 type Handler struct{ Store repository.Store }
 
 type state struct {
-	ID      string                               `json:"id"`
-	Board   [game.Rows][game.Columns]game.Player `json:"board"`
-	Turn    game.Player                          `json:"turn"`
-	Status  game.Status                          `json:"status"`
-	Winner  game.Player                          `json:"winner"`
-	Moves   int                                  `json:"moves"`
-	History []int                                `json:"history"`
+	ID            string                               `json:"id"`
+	Board         [game.Rows][game.Columns]game.Player `json:"board"`
+	Turn          game.Player                          `json:"turn"`
+	Status        game.Status                          `json:"status"`
+	Winner        game.Player                          `json:"winner"`
+	Moves         int                                  `json:"moves"`
+	History       []int                                `json:"history"`
+	Online        bool                                 `json:"online"`
+	PlayersJoined int                                  `json:"playersJoined"`
 }
 
-func snapshot(id string, g *game.Game) state {
+func snapshot(id string, match *repository.Match) state {
 	return state{
-		ID: id, Board: g.Board(), Turn: g.Turn(), Status: g.Status(),
-		Winner: g.Winner(), Moves: g.Moves(), History: g.History(),
+		ID: id, Board: match.Game.Board(), Turn: match.Game.Turn(), Status: match.Game.Status(),
+		Winner: match.Game.Winner(), Moves: match.Game.Moves(), History: match.Game.History(),
+		Online: match.Online, PlayersJoined: match.PlayersJoined,
 	}
 }
 func writeJSON(w http.ResponseWriter, code int, v any) {
@@ -50,7 +53,26 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Location", "/api/games/"+id)
-		writeJSON(w, 201, snapshot(id, g))
+		writeJSON(w, 201, snapshot(id, &repository.Match{Game: g}))
+		return
+	}
+	if path == "api/games/online" {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			fail(w, 405, "method not allowed")
+			return
+		}
+		id, g, token, err := h.Store.CreateOnline(r.Context())
+		if err != nil {
+			fail(w, 500, "internal server error")
+			return
+		}
+		w.Header().Set("Location", "/api/games/"+id)
+		writeJSON(w, 201, struct {
+			state
+			PlayerToken string `json:"playerToken"`
+			Player      int    `json:"player"`
+		}{snapshot(id, &repository.Match{Game: g, Online: true, PlayersJoined: 1}), token, 1})
 		return
 	}
 	parts := strings.Split(path, "/")
@@ -65,12 +87,26 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			fail(w, 405, "method not allowed")
 			return
 		}
-		g, err := h.Store.Get(r.Context(), id)
+		match, err := h.Store.Get(r.Context(), id)
 		if err != nil {
 			storeError(w, err)
 			return
 		}
-		writeJSON(w, 200, snapshot(id, g))
+		writeJSON(w, 200, snapshot(id, match))
+		return
+	}
+	if parts[3] == "join" {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			fail(w, 405, "method not allowed")
+			return
+		}
+		token, err := h.Store.Join(r.Context(), id)
+		if err != nil {
+			storeError(w, err)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"playerToken": token, "player": 2})
 		return
 	}
 	if parts[3] != "moves" {
@@ -101,7 +137,7 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "column is required")
 		return
 	}
-	g, row, err := h.Store.ApplyMove(r.Context(), id, *req.Column)
+	match, row, err := h.Store.ApplyMove(r.Context(), id, *req.Column, r.Header.Get("X-Player-Token"))
 	if err != nil {
 		storeError(w, err)
 		return
@@ -109,7 +145,7 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, struct {
 		state
 		Row int `json:"row"`
-	}{snapshot(id, g), row})
+	}{snapshot(id, match), row})
 }
 func validID(s string) bool {
 	if len(s) != 36 {
@@ -130,6 +166,14 @@ func storeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, repository.ErrNotFound):
 		fail(w, 404, "game not found")
+	case errors.Is(err, repository.ErrAlreadyJoined):
+		fail(w, 409, "both player seats are already filled")
+	case errors.Is(err, repository.ErrNotOnline):
+		fail(w, 409, "this game is not an online match")
+	case errors.Is(err, repository.ErrInvalidPlayerToken):
+		fail(w, 403, "this browser is not allowed to make that move")
+	case errors.Is(err, repository.ErrWaitingForPlayer):
+		fail(w, 409, "waiting for the second player to join")
 	case errors.Is(err, game.ErrInvalidColumn):
 		fail(w, 400, err.Error())
 	case errors.Is(err, game.ErrColumnFull), errors.Is(err, game.ErrGameOver):

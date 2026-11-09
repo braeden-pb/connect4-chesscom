@@ -8,12 +8,19 @@ export interface GameState {
   winner: Player;
   moves: number;
   history: number[];
+  online: boolean;
+  playersJoined: number;
   row?: number;
+}
+export interface OnlineGame {
+  state: GameState;
+  playerToken: string;
+  player: 1 | 2;
 }
 export class ApiError extends Error {
   constructor(message: string, public readonly status: number) { super(message); this.name = 'ApiError'; }
 }
-async function request(path: string, init?: RequestInit): Promise<GameState> {
+async function requestData(path: string, init?: RequestInit): Promise<unknown> {
   let response: Response;
   try {
     response = await fetch(path, { ...init, headers: { 'Content-Type': 'application/json', ...init?.headers } });
@@ -26,7 +33,11 @@ async function request(path: string, init?: RequestInit): Promise<GameState> {
       ? body.error : `Request failed (${response.status})`;
     throw new ApiError(message, response.status);
   }
-  if (!isGameState(body)) throw new ApiError('The server returned an unexpected game state.', response.status);
+  return body;
+}
+async function request(path: string, init?: RequestInit): Promise<GameState> {
+  const body = await requestData(path, init);
+  if (!isGameState(body)) throw new ApiError('The server returned an unexpected game state.', 200);
   return body;
 }
 export function isGameState(value: unknown): value is GameState {
@@ -40,8 +51,30 @@ export function isGameState(value: unknown): value is GameState {
     && (v.status === 'in_progress' || v.status === 'won' || v.status === 'draw')
     && Number.isInteger(v.moves) && (v.moves as number) >= 0 && (v.moves as number) <= 42
     && Array.isArray(v.history) && v.history.length === v.moves
-    && v.history.every(column => Number.isInteger(column) && column >= 0 && column < 7);
+    && v.history.every(column => Number.isInteger(column) && column >= 0 && column < 7)
+    && typeof v.online === 'boolean'
+    && Number.isInteger(v.playersJoined) && (v.playersJoined as number) >= 0 && (v.playersJoined as number) <= 2;
 }
 export const createGame = () => request('/api/games', { method: 'POST' });
+export async function createOnlineGame(): Promise<OnlineGame> {
+  const body = await requestData('/api/games/online', { method: 'POST' });
+  if (!isGameState(body) || !('playerToken' in body) || typeof body.playerToken !== 'string'
+    || !('player' in body) || (body.player !== 1 && body.player !== 2)) {
+    throw new ApiError('The server returned an unexpected online game.', 200);
+  }
+  return { state: body, playerToken: body.playerToken, player: body.player };
+}
+export async function joinGame(id: string): Promise<{ playerToken: string; player: 2 }> {
+  const body = await requestData(`/api/games/${encodeURIComponent(id)}/join`, { method: 'POST' });
+  if (!body || typeof body !== 'object' || !('playerToken' in body) || typeof body.playerToken !== 'string'
+    || !('player' in body) || body.player !== 2) {
+    throw new ApiError('The server returned an unexpected join response.', 200);
+  }
+  return { playerToken: body.playerToken, player: 2 };
+}
 export const getGame = (id: string) => request(`/api/games/${encodeURIComponent(id)}`);
-export const makeMove = (id: string, column: number) => request(`/api/games/${encodeURIComponent(id)}/moves`, { method: 'POST', body: JSON.stringify({ column }) });
+export const makeMove = (id: string, column: number, playerToken?: string) => request(`/api/games/${encodeURIComponent(id)}/moves`, {
+  method: 'POST',
+  body: JSON.stringify({ column }),
+  headers: playerToken ? { 'X-Player-Token': playerToken } : undefined,
+});

@@ -25,6 +25,15 @@ test('winning line uses winning player only', () => {
   for (let c=0;c<4;c++) board[5][c]=1;
   assert.deepEqual(findWinningLine(board, 2), []);
 });
+test('draws a responsive line through all four winning discs', () => {
+  const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
+  assert.match(app, /className="winning-connection"/);
+  assert.match(app, /winningLine\.map\(\(\[row, col\]\)/);
+  assert.match(app, /new ResizeObserver\(updateLine\)/);
+  assert.match(css, /\.winning-connection\{position:absolute;inset:0/);
+  assert.match(css, /\.winning-connection-stroke\{stroke:#fff1b8/);
+});
 test('animation respects reduced motion and only triggers for new confirmed moves', () => {
   const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
   const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
@@ -46,10 +55,15 @@ test('fireworks trigger only on newly confirmed wins, not restored games', () =>
   const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
   const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
   assert.match(app, /if \(updated\.status === 'won'\) setCelebration\(updated\.moves\)/);
+  assert.match(app, /current\.status === 'in_progress' && latest\.status === 'won'[\s\S]*setCelebration\(latest\.moves\)/);
+  assert.match(app, /winner-overlay-loser/);
+  assert.match(app, /'DEFEAT' : 'VICTORY'/);
+  assert.match(app, /'You lost' : `\$\{playerName\(game\.winner\)\} team wins!`/);
   assert.match(app, /setCelebration\(null\)/);
   assert.match(app, /aria-hidden="true"/);
   assert.match(app, /window\.setTimeout\(\(\) => setCelebration\(null\), 1800\)/);
   assert.match(css, /winner-overlay-show 1800ms/);
+  assert.match(css, /\.winner-overlay-loser\{/);
   assert.match(css, /pointer-events:none/);
   assert.match(css, /@keyframes firework-spark/);
   assert.match(css, /prefers-reduced-motion:reduce\)\{\.victory-fireworks\{display:none/);
