@@ -36,6 +36,12 @@ export default function App() {
   const requestVersion = useRef(0);
   const audioContext = useRef<AudioContext | null>(null);
 
+  useEffect(() => {
+    if (celebration === null) return;
+    const timeout = window.setTimeout(() => setCelebration(null), 1800);
+    return () => window.clearTimeout(timeout);
+  }, [celebration]);
+
   const enableAudio = () => {
     if (typeof window === 'undefined' || !window.AudioContext) return null;
     audioContext.current ??= new window.AudioContext();
@@ -113,7 +119,7 @@ export default function App() {
   const winningLine = game?.status === 'won' ? findWinningLine(game.board, game.winner) : [];
   const winningCells = new Set(winningLine.map(([row, col]) => `${row}-${col}`));
   return <main className="app-shell">
-    {celebration !== null && game?.status === 'won' && <div key={`${game.id}-${celebration}`} className="victory-fireworks" aria-hidden="true" onAnimationEnd={(event) => { if (event.target === event.currentTarget) setCelebration(null); }}>
+    {celebration !== null && game?.status === 'won' && <div key={`${game.id}-${celebration}`} className="victory-fireworks" aria-hidden="true">
       {Array.from({ length: 3 }, (_, burst) => <div className={`firework-burst firework-burst-${burst + 1}`} key={burst}>
         {Array.from({ length: 12 }, (_, particle) => <i key={particle} className="firework-particle" style={{ '--angle': `${particle * 30}deg`, '--distance': `${68 + (particle % 3) * 15}px` } as React.CSSProperties} />)}
       </div>)}
@@ -138,7 +144,12 @@ export default function App() {
               const justDropped = !!cell && lastDrop !== null && game !== null && lastDrop.gameId === game.id && lastDrop.move === game.moves && lastDrop.row === row && lastDrop.column === col;
               return <span className={`slot ${winning ? 'slot-winning' : ''} ${hovered === col && row === 0 && !cell && !busy && !isFinished ? `slot-preview-${game?.turn}` : ''}`} key={`${row}-${col}-${justDropped ? game?.moves : 0}`} aria-label={`Row ${row + 1}, column ${col + 1}: ${cell ? playerName(cell) : 'empty'}${winning ? ', winning piece' : ''}`}>{cell !== 0 && <span className={`disc-piece ${cell === 1 ? 'slot-red' : 'slot-yellow'} ${justDropped ? 'disc-dropping' : ''}`} style={justDropped ? { '--drop-rows': row + 1, '--drop-duration': `${450 + (row + 1) * 85}ms` } as React.CSSProperties : undefined}><span className="disc-shine"/></span>}</span>; })}
           </button>)}
-        </div></div>
+        </div>
+        {celebration !== null && game?.status === 'won' && <div key={`${game.id}-${celebration}-winner`} className={`winner-overlay winner-overlay-${game.winner}`} role="status" aria-live="polite">
+          <span className="winner-overlay-disc" aria-hidden="true"/>
+          <span><span className="winner-overlay-label">VICTORY</span><strong>{playerName(game.winner)} team wins!</strong></span>
+          <span className="winner-overlay-mark" aria-hidden="true">★</span>
+        </div>}</div>
         <div className="below-board"><span className="hint">↓ Select any column to drop your disc</span><button type="button" className="new-game" onClick={() => void newGame()} disabled={busy}><span aria-hidden="true">↻</span> New game</button></div>
         {error && <div className="error" role="alert">{error} <button type="button" onClick={() => { setError(''); if (game) void getGame(game.id).then(setGame).catch(e => setError(String(e))); else void newGame(); }}>Retry</button></div>}
       </div>

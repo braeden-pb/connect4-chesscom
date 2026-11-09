@@ -18,6 +18,8 @@ test('handles wins, draws, turn display, and new games', () => {
   assert.match(app, /game\.status === 'won'/);
   assert.match(app, /game\.status === 'draw'/);
   assert.match(app, /game\.turn/);
+  assert.match(app, /celebration !== null && game\?\.status === 'won' && <div key=\{`\$\{game\.id\}-\$\{celebration\}-winner`\} className=\{`winner-overlay winner-overlay-\$\{game\.winner\}`\}/);
+  assert.match(app, /\{playerName\(game\.winner\)\} team wins!/);
   assert.match(app, /onClick=\{\(\) => void newGame\(\)\}/);
 });
 test('prevents invalid UI moves and duplicate submissions', () => {

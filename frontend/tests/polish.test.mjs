@@ -48,7 +48,8 @@ test('fireworks trigger only on newly confirmed wins, not restored games', () =>
   assert.match(app, /if \(updated\.status === 'won'\) setCelebration\(updated\.moves\)/);
   assert.match(app, /setCelebration\(null\)/);
   assert.match(app, /aria-hidden="true"/);
-  assert.match(app, /onAnimationEnd=/);
+  assert.match(app, /window\.setTimeout\(\(\) => setCelebration\(null\), 1800\)/);
+  assert.match(css, /winner-overlay-show 1800ms/);
   assert.match(css, /pointer-events:none/);
   assert.match(css, /@keyframes firework-spark/);
   assert.match(css, /prefers-reduced-motion:reduce\)\{\.victory-fireworks\{display:none/);
