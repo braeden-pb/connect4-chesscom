@@ -4,6 +4,21 @@ import { findWinningLine } from './winningLine.mjs';
 
 const STORAGE_KEY = 'connect4.gameId';
 const playerName = (player: number) => player === 1 ? 'Red' : 'Yellow';
+function playTone(context: AudioContext, frequency: number, endFrequency: number, delay: number, duration: number, volume: number) {
+  const start = context.currentTime + delay;
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+  oscillator.type = 'sine';
+  oscillator.frequency.setValueAtTime(frequency, start);
+  oscillator.frequency.exponentialRampToValueAtTime(endFrequency, start + duration);
+  gain.gain.setValueAtTime(0.0001, start);
+  gain.gain.exponentialRampToValueAtTime(volume, start + 0.012);
+  gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+  oscillator.connect(gain);
+  gain.connect(context.destination);
+  oscillator.start(start);
+  oscillator.stop(start + duration);
+}
 function description(game: GameState): string {
   if (game.status === 'won') return `${playerName(game.winner)} wins!`;
   if (game.status === 'draw') return "It's a draw!";
@@ -19,6 +34,16 @@ export default function App() {
   const [lastDrop, setLastDrop] = useState<{ row: number; column: number; gameId: string; move: number } | null>(null);
   const operation = useRef(false);
   const requestVersion = useRef(0);
+  const audioContext = useRef<AudioContext | null>(null);
+
+  const enableAudio = () => {
+    if (typeof window === 'undefined' || !window.AudioContext) return null;
+    audioContext.current ??= new window.AudioContext();
+    if (audioContext.current.state === 'suspended') {
+      void audioContext.current.resume().catch(error => console.error('Could not enable game sounds.', error));
+    }
+    return audioContext.current;
+  };
 
   const newGame = useCallback(async () => {
     if (operation.current) return;
@@ -59,12 +84,21 @@ export default function App() {
 
   const drop = async (column: number) => {
     if (!game || game.status !== 'in_progress' || busy || operation.current || game.board[0][column] !== 0) return;
+    const sound = enableAudio();
     operation.current = true; setBusy(true); setError('');
     try {
       const updated = await makeMove(game.id, column);
       const row = updated.board.findIndex((cells, index) => cells[column] !== game.board[index][column]);
       setLastDrop(row >= 0 ? { row, column, gameId: updated.id, move: updated.moves } : null);
       setGame(updated);
+      if (sound) {
+        playTone(sound, 520, 210, 0, 0.18, 0.045);
+        if (updated.status === 'won') {
+          playTone(sound, 523.25, 523.25, 0.12, 0.3, 0.035);
+          playTone(sound, 659.25, 659.25, 0.18, 0.3, 0.035);
+          playTone(sound, 783.99, 783.99, 0.24, 0.42, 0.035);
+        }
+      }
       if (updated.status === 'won') setCelebration(updated.moves);
     }
     catch (e) {
@@ -102,7 +136,7 @@ export default function App() {
           {Array.from({length:7}, (_, col) => <button type="button" className="board-column" key={col} onMouseEnter={() => setHovered(col)} onMouseLeave={() => setHovered(null)} onFocus={() => setHovered(col)} onBlur={() => setHovered(null)} onClick={() => void drop(col)} disabled={!game || busy || isFinished || game.board[0][col] !== 0} aria-label={`Drop ${game ? playerName(game.turn) : 'a'} disc in column ${col + 1}`}>
             {Array.from({length:6}, (_, row) => { const cell = game?.board[row][col] ?? 0; const winning = winningCells.has(`${row}-${col}`);
               const justDropped = !!cell && lastDrop !== null && game !== null && lastDrop.gameId === game.id && lastDrop.move === game.moves && lastDrop.row === row && lastDrop.column === col;
-              return <span className={`slot ${cell === 1 ? 'slot-red' : cell === 2 ? 'slot-yellow' : ''} ${winning ? 'slot-winning' : ''} ${justDropped ? 'slot-dropping' : ''} ${hovered === col && row === 0 && !cell && !busy && !isFinished ? `slot-preview-${game?.turn}` : ''}`} key={`${row}-${col}-${justDropped ? game?.moves : 0}`} style={justDropped ? { '--drop-rows': row + 1 } as React.CSSProperties : undefined} aria-label={`Row ${row + 1}, column ${col + 1}: ${cell ? playerName(cell) : 'empty'}${winning ? ', winning piece' : ''}`}><span className="disc-shine"/></span>; })}
+              return <span className={`slot ${winning ? 'slot-winning' : ''} ${hovered === col && row === 0 && !cell && !busy && !isFinished ? `slot-preview-${game?.turn}` : ''}`} key={`${row}-${col}-${justDropped ? game?.moves : 0}`} aria-label={`Row ${row + 1}, column ${col + 1}: ${cell ? playerName(cell) : 'empty'}${winning ? ', winning piece' : ''}`}>{cell !== 0 && <span className={`disc-piece ${cell === 1 ? 'slot-red' : 'slot-yellow'} ${justDropped ? 'disc-dropping' : ''}`} style={justDropped ? { '--drop-rows': row + 1, '--drop-duration': `${450 + (row + 1) * 85}ms` } as React.CSSProperties : undefined}><span className="disc-shine"/></span>}</span>; })}
           </button>)}
         </div></div>
         <div className="below-board"><span className="hint">↓ Select any column to drop your disc</span><button type="button" className="new-game" onClick={() => void newGame()} disabled={busy}><span aria-hidden="true">↻</span> New game</button></div>

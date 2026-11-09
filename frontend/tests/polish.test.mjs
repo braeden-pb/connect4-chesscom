@@ -31,9 +31,15 @@ test('animation respects reduced motion and only triggers for new confirmed move
   assert.match(app, /const updated = await makeMove/);
   assert.match(app, /lastDrop\.move === game\.moves/);
   assert.match(app, /slot-winning/);
-  assert.match(app, /slot-dropping/);
+  assert.match(app, /disc-dropping/);
+  assert.match(app, /className=\{`slot \$\{winning \? 'slot-winning'/);
   assert.match(css, /@keyframes piece-drop/);
-  assert.match(css, /prefers-reduced-motion:reduce/);
+  assert.match(app, /'--drop-duration': `\$\{450 \+ \(row \+ 1\) \* 85\}ms`/);
+  assert.match(app, /playTone\(sound, 520, 210, 0, 0\.18, 0\.045\)/);
+  assert.match(css, /piece-drop var\(--drop-duration,960ms\) cubic-bezier\(\.16,\.76,\.28,1\)/);
+  assert.ok(css.includes('.slot{aspect-ratio:1;width:100%;border-radius:50%;background:#0b1b3d'));
+  assert.ok(css.includes('90%{transform:translateY(-.5%) scale(.992)}'));
+  assert.match(css, /prefers-reduced-motion:reduce\)\{\.disc-dropping\{animation:none\}\}/);
 });
 
 test('fireworks trigger only on newly confirmed wins, not restored games', () => {
@@ -46,4 +52,13 @@ test('fireworks trigger only on newly confirmed wins, not restored games', () =>
   assert.match(css, /pointer-events:none/);
   assert.match(css, /@keyframes firework-spark/);
   assert.match(css, /prefers-reduced-motion:reduce\)\{\.victory-fireworks\{display:none/);
+});
+
+test('plays the original drop tone and a chord on wins', () => {
+  const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
+  assert.match(app, /audioContext\.current \?\?= new window\.AudioContext\(\)/);
+  assert.match(app, /if \(sound\) \{\s*playTone\(sound, 520, 210, 0, 0\.18, 0\.045\)/);
+  assert.match(app, /playTone\(sound, 523\.25, 523\.25, 0\.12/);
+  assert.match(app, /playTone\(sound, 659\.25, 659\.25, 0\.18/);
+  assert.match(app, /playTone\(sound, 783\.99, 783\.99, 0\.24/);
 });
