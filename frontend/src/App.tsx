@@ -250,17 +250,6 @@ export default function App() {
     </div>}
     <header className="topbar">
       <div className="brand"><span className="brand-mark" aria-hidden="true"><i/><i/><i/><i/></span><span>FOUR<span className="brand-light">INAROW</span></span></div>
-      <div className="topbar-actions"><span className="top-label">THE CLASSIC STRATEGY GAME</span>
-        <details className="theme-menu">
-          <summary className="theme-menu-trigger" aria-label="Choose background style" title="Background style"><span aria-hidden="true">✦</span></summary>
-          <div className="theme-popover" aria-label="Background styles">
-            <span className="theme-menu-title">BACKGROUND STYLE</span>
-            {backgroundThemes.map(theme => <button type="button" className={`theme-option theme-option-${theme.id}`} key={theme.id} aria-pressed={backgroundTheme === theme.id} onClick={() => setBackgroundTheme(theme.id)}>
-              <span className="theme-swatch" aria-hidden="true"/><span><strong>{theme.label}</strong><small>{theme.description}</small></span>{backgroundTheme === theme.id && <span className="theme-check" aria-hidden="true">✓</span>}
-            </button>)}
-          </div>
-        </details>
-      </div>
     </header>
     <section className="layout">
       <div className="intro"><div className="eyebrow"><span className="eyebrow-dot"/> TWO PLAYERS · ONE WINNER</div><h1>Make your <em>move.</em></h1><p>Connect four discs in a row — vertically, horizontally, or diagonally — to claim victory.</p></div>
@@ -272,6 +261,16 @@ export default function App() {
           <div className={`player-card yellow ${game?.status === 'in_progress' && game.turn === 2 ? 'active' : ''} ${game?.winner === 2 ? 'champion' : ''}`}><span className="player-disc"/><div><span className="player-caption">PLAYER TWO</span><strong>Yellow</strong></div>{game?.turn === 2 && game.status === 'in_progress' && <span className="playing">PLAYING</span>}{game?.winner === 2 && <span className="playing">WINNER</span>}</div>
         </div>
         <div className={`status ${game?.status === 'won' ? 'status-win' : ''}`} role="status" aria-live="polite"><span className={`status-indicator ${game?.status === 'in_progress' ? game.turn === 1 ? 'red-dot' : 'yellow-dot' : ''}`}/><span>{loading ? 'Loading your match…' : game ? description(game) : 'Ready to play?'}</span><span className="move-counter">{game?.moves ?? 0} / 42 MOVES</span></div>
+        <div className="utility-menus">
+        <details className="theme-menu">
+          <summary className="theme-menu-trigger" aria-label={`Choose background style, currently ${backgroundThemes.find(theme => theme.id === backgroundTheme)?.label ?? 'Classic'}`} title="Background style"><span aria-hidden="true">✦</span><span>{backgroundThemes.find(theme => theme.id === backgroundTheme)?.label ?? 'Classic'}</span></summary>
+          <div className="theme-popover" aria-label="Background styles">
+            <span className="theme-menu-title">BACKGROUND STYLE</span>
+            {backgroundThemes.map(theme => <button type="button" className={`theme-option theme-option-${theme.id}`} key={theme.id} aria-pressed={backgroundTheme === theme.id} onClick={() => setBackgroundTheme(theme.id)}>
+              <span className="theme-swatch" aria-hidden="true"/><span><strong>{theme.label}</strong><small>{theme.description}</small></span>{backgroundTheme === theme.id && <span className="theme-check" aria-hidden="true">✓</span>}
+            </button>)}
+          </div>
+        </details>
         <details className="audio-menu">
           <summary className={`audio-menu-trigger ${musicOn || effectsOn ? 'audio-menu-active' : ''}`} aria-label="Open audio settings" title="Audio settings">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h4l5 4V6l-5 4H4Z"/><path d="M16 9a5 5 0 0 1 0 6M18.5 6.5a9 9 0 0 1 0 11"/></svg>
@@ -294,6 +293,7 @@ export default function App() {
             </div>
           </div>
         </details>
+        </div>
         <div className="board-wrap"><div className="board" role="group" aria-label="Connect Four game board">
           {Array.from({length:7}, (_, col) => <button type="button" className="board-column" key={col} onMouseEnter={() => setHovered(col)} onMouseLeave={() => setHovered(null)} onFocus={() => setHovered(col)} onBlur={() => setHovered(null)} onClick={() => void drop(col)} disabled={!game || busy || isFinished || game.board[0][col] !== 0} aria-label={`Drop ${game ? playerName(game.turn) : 'a'} disc in column ${col + 1}`}>
             {Array.from({length:6}, (_, row) => { const cell = game?.board[row][col] ?? 0; const winning = winningCells.has(`${row}-${col}`);

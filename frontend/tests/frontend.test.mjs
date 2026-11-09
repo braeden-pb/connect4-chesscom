@@ -48,9 +48,13 @@ test('offers persistent background themes', () => {
   assert.match(app, /id: 'neon', label: 'Neon Grid'/);
   assert.match(app, /id: 'retro', label: 'Retro Sunset'/);
   assert.match(app, /localStorage\.setItem\(BACKGROUND_STORAGE_KEY, backgroundTheme\)/);
-  assert.match(app, /aria-label="Choose background style"/);
+  assert.match(app, /aria-label=\{`Choose background style, currently \$\{backgroundThemes\.find/);
+  assert.match(app, /theme-menu-trigger[^>]*>[\s\S]*backgroundThemes\.find\(theme => theme\.id === backgroundTheme\)/);
+  assert.match(app, /className="utility-menus">[\s\S]*<details className="theme-menu">[\s\S]*<details className="audio-menu">/);
   assert.match(css, /data-background-theme='neon'/);
   assert.match(css, /data-background-theme='retro'/);
+  assert.match(css, /\.theme-menu-trigger\{display:flex;align-items:center/);
+  assert.match(css, /\.utility-menus\{display:flex;align-items:center;justify-content:flex-end;gap:10px/);
 });
 test('prevents invalid UI moves and duplicate submissions', () => {
   assert.match(app, /operation\.current/);
